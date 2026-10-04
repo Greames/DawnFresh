@@ -27,9 +27,8 @@ export type Module = 'orders' | 'leads' | 'inventory' | 'sourcing' | 'outlets' |
 export type AccessLevel = 'none' | 'view' | 'edit'
 export type Role = 'admin' | 'staff' | 'franchisee'
 export type Permissions = Record<Module, AccessLevel>
-export type AccessProfile = { role: Role; permissions: Permissions; name?: string; email?: string; owner: boolean }
-export type AppUser = { id: string; email: string; name?: string; role: Role; franchiseId?: string | null; permissions: Partial<Permissions>; status: string; identityId?: string | null; createdAt?: string; lastSeenAt?: string | null; login?: { exists: boolean; lastSignInAt?: string; confirmedAt?: string; invitedAt?: string } }
-export type PendingAccount = { identityId: string; email: string; name?: string; lastSignInAt?: string; roles: string[] }
+export type AccessProfile = { id: string; role: Role; permissions: Permissions; name?: string; email?: string }
+export type AppUser = { id: string; email: string; name?: string; role: Role; franchiseId?: string | null; permissions: Partial<Permissions>; status: string; createdAt?: string; lastSeenAt?: string | null; hasPassword?: boolean; locked?: boolean }
 export const modules: { id: Module; label: string; short: string; detail: string }[] = [
   { id: 'orders', short: 'Orders', label: 'Orders & deliveries', detail: 'Customer orders, payments received and the delivery view' },
   { id: 'leads', short: 'Leads', label: 'Customers, leads & territory', detail: 'Leads, conversions and business discovery' },
@@ -138,10 +137,10 @@ export function demoRecords(): BusinessRecord[] {
 }
 export function demoUsers(): AppUser[] {
   return [
-    { id: 'demo-user-1', email: 'owner@example.com', name: 'Business owner', role: 'admin', permissions: {}, status: 'Active', lastSeenAt: new Date().toISOString() },
-    { id: 'demo-user-2', email: 'dispatch@example.com', name: 'Dispatch lead', role: 'staff', permissions: { sourcing: 'view', franchises: 'none' }, status: 'Active' },
-    { id: 'demo-user-3', email: 'north@example.com', name: 'North City owner', role: 'franchisee', franchiseId: 'demo-franchise-1', permissions: {}, status: 'Active' },
-    { id: 'demo-user-4', email: 'south@example.com', name: 'South Harbour owner', role: 'franchisee', franchiseId: 'demo-franchise-2', permissions: { supply: 'view' }, status: 'Disabled' },
+    { id: 'demo-user-1', email: 'owner@example.com', name: 'Business owner', role: 'admin', permissions: {}, status: 'Active', hasPassword: true, lastSeenAt: new Date().toISOString() },
+    { id: 'demo-user-2', email: 'dispatch@example.com', name: 'Dispatch lead', role: 'staff', permissions: { sourcing: 'view', franchises: 'none' }, status: 'Active', hasPassword: true },
+    { id: 'demo-user-3', email: 'north@example.com', name: 'North City owner', role: 'franchisee', franchiseId: 'demo-franchise-1', permissions: {}, status: 'Active', hasPassword: true },
+    { id: 'demo-user-4', email: 'south@example.com', name: 'South Harbour owner', role: 'franchisee', franchiseId: 'demo-franchise-2', permissions: { supply: 'view' }, status: 'Disabled', hasPassword: true },
   ]
 }
 export function demoFranchises(): Franchise[] {

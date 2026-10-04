@@ -56,7 +56,7 @@ function outsideTerritory(data: Record<string, unknown>, franchise: { data: Reco
 export default async (req: Request) => {
   const headers = { 'Cache-Control': 'no-store' }
   try {
-    const access = await resolveAccess()
+    const access = await resolveAccess(req)
     if ('error' in access) return Response.json({ error: access.error }, { status: access.status, headers })
     const own = access.role === 'franchisee' ? access.franchise : null
     if (req.method === 'GET') {

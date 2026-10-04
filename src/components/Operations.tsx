@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { getUser, login, logout, handleAuthCallback, acceptInvite, updateUser, requestPasswordRecovery } from '@netlify/identity'
-import type { User } from '@netlify/identity'
 import { ArrowRight, ArrowUpRight, Bell, BookOpen, Boxes, Eye, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Download, ExternalLink, LayoutDashboard, Leaf, MapPin, Menu, MessageCircle, MoreHorizontal, Package, Plus, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Sprout, Store, Target, Truck, Users, Wallet, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { can, dateOffset, defaultSettings, demoFranchises, demoRecords, demoUsers, discoveryCategories, distance, franchiseKinds, money, products, resolvePermissions, segments, statusOptions } from '../lib/business'
-import type { AccessProfile, AppUser, BusinessData, BusinessRecord, Franchise, FranchiseLogins, Kind, Module, PendingAccount, Settings } from '../lib/business'
+import type { AccessProfile, AppUser, BusinessData, BusinessRecord, Franchise, FranchiseLogins, Kind, Module, Settings } from '../lib/business'
 import { FranchiseForm, FranchiseNetwork, franchiseSummary } from './Franchises'
 import { UserForm, UsersAccess } from './Users'
 import type { UserFormValues } from './Users'
@@ -53,7 +51,7 @@ function Modal({ children, title, close }: { children: ReactNode; title: string;
   const dialog = useRef<HTMLElement>(null)
   useEffect(() => {
     const previous = document.activeElement as HTMLElement
-    dialog.current?.querySelector<HTMLElement>('input, button, select')?.focus()
+    (dialog.current?.querySelector<HTMLElement>('input:not([type=hidden]):not(:disabled), select, textarea') ?? dialog.current?.querySelector<HTMLElement>('button'))?.focus()
     function handleKey(event: KeyboardEvent) {
       if (event.key === 'Escape') close()
       if (event.key !== 'Tab') return
@@ -115,14 +113,14 @@ export function Operations() {
   const [logins, setLogins] = useState<Record<string, FranchiseLogins> | null>(null)
   const [access, setAccess] = useState<AccessProfile | null>(null)
   const [users, setUsers] = useState<AppUser[]>(demoUsers)
-  const [pendingAccounts, setPendingAccounts] = useState<PendingAccount[] | null>([])
-  const [identityAvailable, setIdentityAvailable] = useState(true)
-  const [userModal, setUserModal] = useState<{ user?: AppUser; prefill?: PendingAccount } | null>(null)
+  const [userModal, setUserModal] = useState<{ user?: AppUser } | null>(null)
+  const [setupRequired, setSetupRequired] = useState(false)
+  const [setupCodeRequired, setSetupCodeRequired] = useState(false)
   const [scope, setScope] = useState('all')
   const [franchiseModal, setFranchiseModal] = useState<{ franchise?: Franchise } | null>(null)
   const [category, setCategory] = useState<string>(discoveryCategories[0].id)
   const [settings, setSettings] = useState<Settings>(defaultSettings)
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<{ name?: string; email?: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [period, setPeriod] = useState('week')
@@ -131,8 +129,7 @@ export function Operations() {
   const [notifications, setNotifications] = useState(false)
   const [modal, setModal] = useState<{ kind: Kind; record?: BusinessRecord } | null>(null)
   const [auth, setAuth] = useState(false)
-  const [authMode, setAuthMode] = useState<'login' | 'invite' | 'recovery' | 'forgot'>('login')
-  const [inviteToken, setInviteToken] = useState('')
+  const [authMode, setAuthMode] = useState<'login' | 'setup' | 'forgot' | 'account'>('login')
   const [error, setError] = useState('')
   const [formError, setFormError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -174,28 +171,29 @@ export function Operations() {
     overview: 'A fresh perspective on your business. Everything in one place.', orders: 'From a first order to a repeat customer. Keep every sale moving.', leads: 'Build relationships. Follow up thoughtfully. Grow locally.', sourcing: 'Your farmer-to-kitchen supply chain starts here.', inventory: 'Know your batches, availability and freshness at every outlet.', deliveries: 'Keep an eye on every order from dispatch to doorstep.', outlets: 'One business. Connected wholesale, retail and mobile operations.', territory: 'Find your next customers, one neighbourhood at a time.', supply: franchiseMode ? 'Request stock from the company and keep track of what you owe.' : 'Supply every franchise. Price, dispatch and collect payments.', franchises: 'Every franchise location and result in one place.', users: 'Decide who can sign in and what each person can view or edit.', settings: 'Make this workspace yours. Set up your business and territory.', playbook: 'Build a repeatable business, not just a busy business.',
   }
 
-  async function load(currentUser: User) {
-    setUser(currentUser)
-    setLoading(true); setRows([]); setFranchises([]); setOwnFranchise(null); setLogins(null); setUsers([]); setPendingAccounts(null); setAccess(null); setScope('all'); setSection('overview'); setError('')
+  async function load() {
+    setLoading(true); setRows([]); setFranchises([]); setOwnFranchise(null); setLogins(null); setUsers([]); setAccess(null); setScope('all'); setSection('overview'); setError('')
     try {
       const data = await request('/api/operations')
+      setUser({ name: data.access.name, email: data.access.email }); setSetupRequired(false)
       setRows(data.records); setSettings({ ...defaultSettings, ...data.settings }); setFranchises(data.franchises || []); setOwnFranchise(data.franchise || null); setAccess(data.access)
       const profile: AccessProfile = data.access
       if (profile.role !== 'franchisee' && can(profile.permissions, 'franchises', 'view')) request('/api/franchises').then(result => setLogins(result.logins)).catch(() => setLogins(null))
       if (profile.role === 'admin') loadUsers()
     }
-    catch (cause) { setError(`${(cause as Error).message} Sample data is shown.`); setRows(demoRecords()); setFranchises(demoFranchises()); setUsers(demoUsers()); setPendingAccounts([]) }
+    catch (cause) { setUser(null); setError(`${(cause as Error).message} Sample data is shown.`); setRows(demoRecords()); setFranchises(demoFranchises()); setUsers(demoUsers()) }
     finally { setLoading(false) }
   }
   useEffect(() => {
     async function initialize() {
       try {
-        const callback = await handleAuthCallback()
-        if (callback?.type === 'invite') { setInviteToken(callback.token || ''); setAuthMode('invite'); setAuth(true); return }
-        if (callback?.type === 'recovery') { setAuthMode('recovery'); setAuth(true) }
-        const session = await getUser()
-        if (session) await load(session)
-      } catch { setError('The account link could not be processed. Try signing in or request a fresh invitation.') }
+        const session = await request('/api/auth')
+        if (session.user) { await load(); return }
+        if (session.error) setError(session.error)
+        setSetupCodeRequired(!!session.setupCodeRequired)
+        // A brand-new workspace opens straight into creating the first administrator.
+        if (session.setupRequired) { setSetupRequired(true); setAuthMode('setup'); setAuth(true) }
+      } catch { setError('Sign-in is temporarily unavailable. Sample data is shown.') }
     }
     initialize()
   }, [])
@@ -203,13 +201,13 @@ export function Operations() {
   function viewFranchise(id: string) { setScope(id); navigate('overview') }
   function navigate(next: Section) { setSection(next); setSearch(''); setStatus('All statuses'); setSidebar(false); setError(''); setPlaces([]) }
   async function loadUsers() {
-    try { const result = await request('/api/users'); setUsers(result.users); setPendingAccounts(result.pending); setIdentityAvailable(result.identityAvailable) }
+    try { const result = await request('/api/users'); setUsers(result.users) }
     catch (cause) { setError((cause as Error).message) }
   }
-  function openUserForm(account?: AppUser, prefill?: PendingAccount) {
+  function openUserForm(account?: AppUser) {
     setFormError('')
-    if (!live) { setAuthMode('login'); setAuth(true); return }
-    setUserModal({ user: account, prefill })
+    if (!live) { openAccount(); return }
+    setUserModal({ user: account })
   }
   async function saveUser(values: UserFormValues) {
     const current = userModal?.user
@@ -217,14 +215,14 @@ export function Operations() {
     try {
       const saved: AppUser = await request('/api/users', current ? { ...values, id: current.id } : values, current ? 'PATCH' : 'POST')
       setUsers(list => current ? list.map(item => item.id === saved.id ? saved : item) : [...list, saved])
-      setUserModal(null); setToast(current ? 'Access updated. It applies on their next action.' : 'User added. They can sign in with this email.')
+      setUserModal(null); setToast(current ? 'Access updated. It applies on their next action.' : 'User added. Share the email and password privately.')
       loadUsers()
     } catch (cause) { setFormError((cause as Error).message) }
     finally { setBusy(false) }
   }
   function openForm(kind: Kind, record?: BusinessRecord) {
     setFormError('')
-    if (!live) { setAuthMode('login'); setAuth(true); return }
+    if (!live) { openAccount(); return }
     if (!canEdit(kind)) { setError('You have view-only access here. Ask an administrator for edit access.'); return }
     setModal({ kind, record })
   }
@@ -242,7 +240,7 @@ export function Operations() {
   }
   function openFranchiseForm(franchise?: Franchise) {
     setFormError('')
-    if (!live) { setAuthMode('login'); setAuth(true); return }
+    if (!live) { openAccount(); return }
     if (!canEdit('franchises')) { setError('You have view-only access to the franchise network.'); return }
     setFranchiseModal({ franchise })
   }
@@ -260,17 +258,25 @@ export function Operations() {
   async function authenticate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setFormError('')
     const values = new FormData(event.currentTarget)
+    const text = (key: string) => String(values.get(key) || '')
     try {
-      if (authMode === 'forgot') { await requestPasswordRecovery(String(values.get('email'))); setFormError('If the account exists, a recovery email is on its way.'); return }
-      const password = String(values.get('password'))
-      if (authMode === 'recovery') { await updateUser({ password }); const session = await getUser(); if (session) await load(session) }
-      else { const session = authMode === 'invite' ? await acceptInvite(inviteToken, password) : await login(String(values.get('email')), password); await load(session) }
-      setAuth(false); setInviteToken(''); setToast('You’re signed in. Your workspace is connected.')
-    } catch { setFormError('Unable to sign in. Check your details or ask the administrator for a fresh invitation.') }
+      if (authMode === 'account') {
+        if (text('password') !== text('confirm')) { setFormError('The new passwords do not match.'); return }
+        await request('/api/auth', { action: 'password', current: text('current'), password: text('password') })
+        setAuth(false); setToast('Password changed. Other devices have been signed out.'); return
+      }
+      if (authMode === 'setup') {
+        if (text('password') !== text('confirm')) { setFormError('The passwords do not match.'); return }
+        await request('/api/auth', { action: 'setup', name: text('name').trim(), email: text('email'), password: text('password'), code: text('code') })
+      } else await request('/api/auth', { action: 'login', email: text('email'), password: text('password') })
+      await load()
+      setAuth(false); setToast(authMode === 'setup' ? 'Administrator created. Add your team in Users & access.' : 'You’re signed in. Your workspace is connected.')
+    } catch (cause) { setFormError((cause as Error).message) }
     finally { setBusy(false) }
   }
+  function openAccount() { setFormError(''); setAuthMode(user ? 'account' : setupRequired ? 'setup' : 'login'); setAuth(true) }
   async function signOut() {
-    try { await logout(); setUser(null); setRows(demoRecords()); setFranchises(demoFranchises()); setOwnFranchise(null); setLogins(null); setAccess(null); setUsers(demoUsers()); setPendingAccounts([]); setScope('all'); setSettings(defaultSettings); setToast('Signed out. You’re viewing sample data.'); navigate('overview') }
+    try { await request('/api/auth', { action: 'logout' }); setAuth(false); setUser(null); setRows(demoRecords()); setFranchises(demoFranchises()); setOwnFranchise(null); setLogins(null); setAccess(null); setUsers(demoUsers()); setScope('all'); setSettings(defaultSettings); setToast('Signed out. You’re viewing sample data.'); navigate('overview') }
     catch { setError('Sign out failed. Please try again.') }
   }
   function exportRows() {
@@ -282,7 +288,7 @@ export function Operations() {
     const link = document.createElement('a'); const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })); link.href = url; link.download = `freshroute-${section}-${live ? 'records' : 'sample'}-${today}.csv`; link.click(); URL.revokeObjectURL(url)
   }
   async function discover() {
-    if (!live) { setAuthMode('login'); setAuth(true); return }
+    if (!live) { openAccount(); return }
     if (!canEdit('leads')) { setError('You need edit access to customers and leads to discover businesses.'); return }
     if (!territory.location) { setError(franchiseMode ? 'Your franchise location is not configured. Ask the company administrator.' : 'Set your starting location and coordinates in Business settings first.'); return }
     setBusy(true); setError('')
@@ -312,10 +318,10 @@ export function Operations() {
 
   return <div className="app-shell">
     {sidebar && <button className="sidebar-overlay" aria-label="Close navigation" onClick={() => setSidebar(false)} />}
-    <aside className={`sidebar ${sidebar ? 'is-open' : ''}`}><a className="brand" href="/"><span className="brand-icon"><Leaf size={24} /></span>{settings.company}<span className="brand-dot">.</span></a><button className="workspace-switch" onClick={() => navigate(franchiseMode ? 'territory' : 'outlets')}><span className="workspace-initial">{franchiseMode ? 'FN' : 'FR'}</span><span><strong>{franchiseMode ? ownFranchise?.name : 'Business workspace'}</strong><small>{franchiseMode ? `Franchise · ${ownFranchise?.radius} km territory` : live ? 'Connected operations' : 'Preview workspace'}</small></span><ChevronDown size={15} /></button><nav>{navigation.map(item => <div key={item.id}>{item.group && <p className="nav-group">{item.group}</p>}<button className={`nav-item ${section === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)}><item.icon size={19} /><span>{item.label}</span>{item.id === 'orders' && pending.length > 0 && <span className="nav-count">{pending.length}</span>}{item.id === 'supply' && !franchiseMode && rows.some(row => row.kind === 'supply' && row.data.status === 'Requested') && <span className="nav-count">{rows.filter(row => row.kind === 'supply' && row.data.status === 'Requested').length}</span>}{item.id === 'territory' && <span className="new-label">NEW</span>}</button></div>)}</nav><div className="sidebar-bottom"><a className="nav-item" href="/shop" target="_blank" rel="noreferrer"><ExternalLink size={18} /><span>View your website</span><ArrowUpRight size={15} /></a>{isAdmin && <button className={`nav-item ${section === 'users' ? 'active' : ''}`} onClick={() => navigate('users')}><ShieldCheck size={18} /><span>Users & access</span></button>}{isAdmin && <button className={`nav-item ${section === 'settings' ? 'active' : ''}`} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>Business settings</span></button>}<div className="sidebar-card"><span className="sidebar-card-icon"><Sprout size={20} /></span><strong>Grow a little closer.</strong><p>Your next restaurant partner<br />could be around the corner.</p><button onClick={() => navigate('territory')}>Explore your territory <ArrowRight size={14} /></button></div><button className="profile" onClick={() => { if (user) signOut(); else { setAuthMode('login'); setFormError(''); setAuth(true) } }}><span className="profile-avatar">{user ? (user.name || user.email || 'Team').slice(0, 1).toUpperCase() : 'FR'}</span><span><strong>{user?.name || (user ? 'Team member' : 'Your workspace')}</strong><small>{user ? (franchiseMode ? 'Franchisee · sign out' : 'Sign out of account') : 'Sign in to get started'}</small></span><ChevronRight size={16} /></button></div></aside>
-    <div className="main-shell"><header className="topbar"><div className="topbar-breadcrumb"><button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setSidebar(true)}><Menu size={20} /></button><span>Workspace</span><ChevronRight size={14} /><strong>{title}</strong></div><div className="topbar-actions"><div className="top-search"><Search size={16} /><input aria-label="Search workspace records" placeholder="Search this view..." value={search} onChange={event => setSearch(event.target.value)} /><span>⌕</span></div><span className="topbar-divider" /><div className="notification-wrapper"><button className="icon-button notification-button" aria-label="View business alerts" onClick={() => setNotifications(!notifications)}><Bell size={20} />{(lowStock.length > 0 || unpaid > 0) && <span />}</button>{notifications && <div className="notification-panel"><strong>Business alerts</strong>{!franchiseMode && <p>{lowStock.length} stock lots need attention.</p>}<p>{money(unpaid, currency)} in customer payments is outstanding.</p>{franchiseMode && <p>{money(supplyDue, currency)} is payable to the company for supply.</p>}<button className="text-button" onClick={() => { navigate(franchiseMode ? 'orders' : 'inventory'); setNotifications(false) }}>{franchiseMode ? 'Review orders' : 'Review inventory'} <ArrowRight size={14} /></button></div>}</div><button className="top-avatar" aria-label={user ? 'Your account, sign out' : 'Sign in'} onClick={() => { if (user) signOut(); else { setAuthMode('login'); setFormError(''); setAuth(true) } }}>{user ? (user.name || 'Team')[0] : 'FR'}</button></div></header>
+    <aside className={`sidebar ${sidebar ? 'is-open' : ''}`}><a className="brand" href="/"><span className="brand-icon"><Leaf size={24} /></span>{settings.company}<span className="brand-dot">.</span></a><button className="workspace-switch" onClick={() => navigate(franchiseMode ? 'territory' : 'outlets')}><span className="workspace-initial">{franchiseMode ? 'FN' : 'FR'}</span><span><strong>{franchiseMode ? ownFranchise?.name : 'Business workspace'}</strong><small>{franchiseMode ? `Franchise · ${ownFranchise?.radius} km territory` : live ? 'Connected operations' : 'Preview workspace'}</small></span><ChevronDown size={15} /></button><nav>{navigation.map(item => <div key={item.id}>{item.group && <p className="nav-group">{item.group}</p>}<button className={`nav-item ${section === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)}><item.icon size={19} /><span>{item.label}</span>{item.id === 'orders' && pending.length > 0 && <span className="nav-count">{pending.length}</span>}{item.id === 'supply' && !franchiseMode && rows.some(row => row.kind === 'supply' && row.data.status === 'Requested') && <span className="nav-count">{rows.filter(row => row.kind === 'supply' && row.data.status === 'Requested').length}</span>}{item.id === 'territory' && <span className="new-label">NEW</span>}</button></div>)}</nav><div className="sidebar-bottom"><a className="nav-item" href="/shop" target="_blank" rel="noreferrer"><ExternalLink size={18} /><span>View your website</span><ArrowUpRight size={15} /></a>{isAdmin && <button className={`nav-item ${section === 'users' ? 'active' : ''}`} onClick={() => navigate('users')}><ShieldCheck size={18} /><span>Users & access</span></button>}{isAdmin && <button className={`nav-item ${section === 'settings' ? 'active' : ''}`} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>Business settings</span></button>}<div className="sidebar-card"><span className="sidebar-card-icon"><Sprout size={20} /></span><strong>Grow a little closer.</strong><p>Your next restaurant partner<br />could be around the corner.</p><button onClick={() => navigate('territory')}>Explore your territory <ArrowRight size={14} /></button></div><button className="profile" onClick={openAccount}><span className="profile-avatar">{user ? (user.name || user.email || 'Team').slice(0, 1).toUpperCase() : 'FR'}</span><span><strong>{user?.name || (user ? 'Team member' : 'Your workspace')}</strong><small>{user ? (franchiseMode ? 'Franchisee · account' : 'Account & sign out') : setupRequired ? 'Create the administrator' : 'Sign in to get started'}</small></span><ChevronRight size={16} /></button></div></aside>
+    <div className="main-shell"><header className="topbar"><div className="topbar-breadcrumb"><button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setSidebar(true)}><Menu size={20} /></button><span>Workspace</span><ChevronRight size={14} /><strong>{title}</strong></div><div className="topbar-actions"><div className="top-search"><Search size={16} /><input aria-label="Search workspace records" placeholder="Search this view..." value={search} onChange={event => setSearch(event.target.value)} /><span>⌕</span></div><span className="topbar-divider" /><div className="notification-wrapper"><button className="icon-button notification-button" aria-label="View business alerts" onClick={() => setNotifications(!notifications)}><Bell size={20} />{(lowStock.length > 0 || unpaid > 0) && <span />}</button>{notifications && <div className="notification-panel"><strong>Business alerts</strong>{!franchiseMode && <p>{lowStock.length} stock lots need attention.</p>}<p>{money(unpaid, currency)} in customer payments is outstanding.</p>{franchiseMode && <p>{money(supplyDue, currency)} is payable to the company for supply.</p>}<button className="text-button" onClick={() => { navigate(franchiseMode ? 'orders' : 'inventory'); setNotifications(false) }}>{franchiseMode ? 'Review orders' : 'Review inventory'} <ArrowRight size={14} /></button></div>}</div><button className="top-avatar" aria-label={user ? 'Your account' : 'Sign in'} onClick={openAccount}>{user ? (user.name || 'Team')[0] : 'FR'}</button></div></header>
     <main className="workspace-main"><div className="page-heading"><div><div className="heading-eyebrow"><span className="live-dot" /> YOUR BUSINESS, CONNECTED</div><h1>{section === 'overview' ? (scopedFranchise ? scopedFranchise.name : 'Your business, at a glance') : title}<span className="heading-period">.</span></h1><p>{subtitles[section]}</p></div><div className="page-actions">{!franchiseMode && franchises.length > 0 && ['overview', 'orders', 'leads', 'deliveries', 'supply', 'territory'].includes(section) && <label className="period-select"><Store size={16} /><select aria-label="Network scope" value={scope} onChange={event => { setScope(event.target.value); setPlaces([]) }}><option value="all">Whole network</option><option value="hq">Company direct</option>{franchises.map(franchise => <option key={franchise.id} value={franchise.id}>{franchise.name}</option>)}</select><ChevronDown size={14} /></label>}{section === 'overview' && <label className="period-select"><CalendarDays size={16} /><select aria-label="Reporting period" value={period} onChange={event => setPeriod(event.target.value)}><option value="week">Last 7 days</option><option value="today">Today</option><option value="month">Last 30 days</option></select><ChevronDown size={14} /></label>}{readOnly && <span className="view-only-chip"><Eye size={14} /> View only</span>}{canAct && !['settings', 'playbook'].includes(section) && <button className="primary" onClick={() => section === 'territory' ? discover() : section === 'franchises' ? openFranchiseForm() : section === 'users' ? openUserForm() : openForm(kind)} disabled={busy}><Plus size={17} />{section === 'territory' ? 'Discover businesses' : section === 'franchises' ? 'Add franchise' : section === 'users' ? 'Add user' : kind === 'orders' ? 'New order' : kind === 'leads' ? 'Add lead' : kind === 'supply' ? (franchiseMode ? 'Request stock' : 'Add franchise supply') : kind === 'sourcing' ? 'Add purchase' : kind === 'inventory' ? 'Add stock lot' : 'Add outlet'}</button>}</div></div>
-    {!live && <div className="preview-banner"><span><span className="preview-tag">DEMO</span> You’re exploring sample data. Sign in to start your own operation.</span><button onClick={() => { setAuthMode('login'); setFormError(''); setAuth(true) }}>Connect workspace <ArrowRight size={14} /></button></div>}
+    {!live && <div className="preview-banner"><span><span className="preview-tag">DEMO</span> {setupRequired ? 'Your workspace is ready. Create the administrator account to start using real data.' : 'You’re exploring sample data. Sign in to start your own operation.'}</span><button onClick={openAccount}>{setupRequired ? 'Create administrator' : 'Connect workspace'} <ArrowRight size={14} /></button></div>}
     {error && <div className="error-banner" role="alert">{error}<button className="icon-button" aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
     {loading ? <div className="loading-grid" aria-label="Loading workspace"><div /><div /><div /><div /></div> : <>
     {section === 'overview' && <>
@@ -337,18 +343,36 @@ export function Operations() {
       <section className="daily-strip"><span className="daily-icon"><Truck size={21} /></span><div><strong>Keep the day moving.</strong><span>{orders.filter(row => row.data.status === 'Out for delivery').length} orders on the road · {franchiseMode ? `${money(unpaid, currency)} to collect` : `${lowStock.length} inventory alerts`} · {franchiseMode ? `${rows.filter(row => row.kind === 'supply' && ['Confirmed', 'Dispatched'].includes(row.data.status)).length} supply deliveries coming from the company` : `${rows.filter(row => row.kind === 'sourcing' && row.data.status === 'Ordered').length} incoming purchases`}</span></div><button className="text-button" onClick={() => navigate('deliveries')}>See operations <ArrowRight size={15} /></button></section>
     </>}
     {section === 'franchises' && <FranchiseNetwork franchises={franchises} logins={logins} rows={allRows} currency={currency} isAdmin={canEdit('franchises')} add={() => openFranchiseForm()} edit={franchise => openFranchiseForm(franchise)} view={viewFranchise} />}
-    {section === 'users' && isAdmin && <UsersAccess users={users} pending={pendingAccounts} franchises={franchises} identityAvailable={identityAvailable} add={prefill => openUserForm(undefined, prefill)} edit={account => openUserForm(account)} />}
+    {section === 'users' && isAdmin && <UsersAccess users={users} franchises={franchises} currentUserId={access?.id} add={() => openUserForm()} edit={account => openUserForm(account)} />}
     {['orders', 'leads', 'inventory', 'sourcing', 'outlets', 'deliveries', 'supply'].includes(section) && <><div className="summary-strip"><div><span>Records</span><strong>{tableRows.length}</strong></div><div><span>{kind === 'inventory' ? 'Needs attention' : kind === 'leads' ? 'Open opportunities' : kind === 'outlets' ? 'Active outlets' : 'Total value'}</span><strong>{kind === 'inventory' ? lowStock.length : kind === 'leads' ? openLeads.length : kind === 'outlets' ? tableRows.filter(row => row.data.status === 'Active').length : money(tableRows.filter(row => row.data.status !== 'Cancelled').reduce((sum, row) => sum + (row.data.amount || 0), 0), currency)}</strong></div><div><span>{kind === 'sourcing' ? 'Supplier payments due' : kind === 'supply' ? (franchiseMode ? 'Payable to company' : 'Due from franchises') : kind === 'orders' ? 'Customer payments due' : 'Working together'}</span><strong>{['sourcing', 'supply', 'orders'].includes(kind) ? money(tableRows.filter(row => row.data.status !== 'Cancelled').reduce((sum, row) => sum + Math.max(0, (row.data.amount || 0) - (row.data.paid || 0)), 0), currency) : franchiseMode ? 'Company → You → Kitchen' : 'Farm → Kitchen'}</strong></div></div><section className="panel records-panel"><div className="table-toolbar"><div className="table-search"><Search size={17} /><input aria-label="Search records" placeholder={`Search ${kind}...`} value={search} onChange={event => setSearch(event.target.value)} /></div><div className="toolbar-actions"><select aria-label="Filter status" value={status} onChange={event => setStatus(event.target.value)}><option>All statuses</option>{statusOptions[kind].map(option => <option key={option}>{option}</option>)}</select><button className="outline" onClick={exportRows}><Download size={15} /> Export</button></div></div>{renderTable()}<div className="table-footer"><span>Showing {tableRows.length} records{!live && ' · Sample data'}</span><span>All amounts in {currency}</span></div></section>{section === 'sourcing' && <div className="info-note"><Sprout size={18} /> Receiving a purchase does not create stock automatically. Record the processed yield as a stock lot in Inventory, including its batch and expiry.</div>}{section === 'supply' && <div className="info-note"><Boxes size={18} /> {franchiseMode ? 'Request stock here. The company confirms the price, dispatches and records your payments. Supply does not change any stock count automatically.' : 'The company supplies every franchise. Set the price on Requested items, update the status as you dispatch and record payments received from the franchise.'}</div>}{section === 'deliveries' && <div className="info-note"><Truck size={18} /> Use an order’s notes for route, driver and delivery window. Update its status to track dispatch and completion.</div>}</>}
     {section === 'territory' && <div className="territory-layout"><section className="panel"><div className="panel-heading"><div><h2>{scopedFranchise ? `${franchiseMode ? 'Your' : scopedFranchise.name} territory` : 'Your service territory'}</h2><p>{territory.location || 'Starting location not configured'} · {territory.radius} km radius</p></div>{!franchiseMode && <button className="text-button" onClick={() => scopedFranchise ? openFranchiseForm(scopedFranchise) : navigate('settings')}>Configure <SettingsIcon size={15} /></button>}</div><TerritoryMap radius={territory.radius} count={nearLeads.length} large /><p className="map-disclaimer">Territory illustration, not a navigable street map. Lead distances below use actual coordinates and straight-line distance.</p><div className="territory-stats"><div><strong>{nearLeads.length}</strong><span>Leads in range</span></div><div><strong>{nearLeads.filter(row => row.data.status === 'Customer').length}</strong><span>Converted customers</span></div><div><strong>{money(nearLeads.filter(row => row.data.status !== 'Customer').reduce((sum, row) => sum + (row.data.amount || 0), 0), currency)}</strong><span>Estimated monthly pipeline</span></div></div></section><section className="panel"><div className="panel-heading"><div><h2>Nearby opportunities</h2><p>Prioritise a conversation, not just a pin.</p></div><button className="text-button" onClick={() => openForm('leads')}><Plus size={15} /> Add lead</button></div><div className="nearby-list">{nearLeads.length ? nearLeads.map(row => <article key={row.id}><span className="nearby-icon"><UtensilIcon /></span><div><strong>{row.data.name}</strong><small>{row.data.segment ? `${row.data.segment} · ` : ''}{distance(row.data.latitude!, row.data.longitude!, territory).toFixed(1)} km from your center</small><Badge status={row.data.status} /></div><button className="icon-button" aria-label={`Edit ${row.data.name}`} onClick={() => openForm('leads', row)}><ArrowUpRight size={18} /></button></article>) : <div className="empty-state"><MapPin size={28} /><p>Add lead coordinates and configure your territory to see nearby businesses.</p></div>}</div><div className="discovery-note"><strong>Find restaurants, caterers & hotels</strong><p>Live discovery uses Google Places when connected. Each search returns up to 20 nearby businesses of one type, not every business within the radius. A business can be saved as a lead by only one franchise.</p><label className="discovery-category">Business type<select value={category} onChange={event => { setCategory(event.target.value); setPlaces([]) }}>{discoveryCategories.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label><button className="primary full" disabled={busy} onClick={discover}>{busy ? 'Finding businesses…' : `Discover nearby ${discoveryCategories.find(option => option.id === category)?.label.toLowerCase()}`}<Search size={16} /></button></div></section>{places.length > 0 && <section className="panel discovery-results"><div className="panel-heading"><div><h2>Discovery results</h2><p>Powered by Google · Up to 20 results · Save relevant businesses as leads</p></div></div><div className="nearby-list">{places.map(place => <article key={place.id}><div><strong>{place.displayName.text}</strong><small>{place.formattedAddress}</small>{place.googleMapsUri && <a target="_blank" rel="noreferrer" href={place.googleMapsUri}>View on Google Maps <ExternalLink size={12} /></a>}</div>{place.saved ? <span className="muted fine-print">{place.saved === 'here' ? 'Saved lead' : 'Claimed in network'}</span> : <button className="text-button" onClick={() => { setFormError(''); setModal({ kind: 'leads', record: { id: '', kind: 'leads', createdAt: '', franchiseId: scopedFranchise?.id || null, data: { name: place.displayName.text, status: 'New lead', segment: place.segment, placeId: place.id, note: place.formattedAddress, latitude: place.location.latitude, longitude: place.location.longitude, phone: place.internationalPhoneNumber?.replace(/\D/g, '') } } }) }}>Add lead <Plus size={14} /></button>}</article>)}</div></section>}</div>}
-    {section === 'settings' && <section className="panel settings-panel"><div className="panel-heading"><div><h2>Business essentials</h2><p>The foundation for your sales and distribution workspace.</p></div><SettingsIcon size={20} /></div><form onSubmit={async event => { event.preventDefault(); if (!live) { setAuth(true); return } const values = new FormData(event.currentTarget); const data = Object.fromEntries(values) as unknown as Settings; data.latitude = Number(data.latitude); data.longitude = Number(data.longitude); data.radius = Number(data.radius); setBusy(true); setError(''); try { await request('/api/operations', { kind: 'settings', data }); setSettings(data); setToast('Business settings saved. Your website contact is connected.') } catch (cause) { setError((cause as Error).message) } finally { setBusy(false) } }}><div className="form-grid"><label>Company name<input name="company" required maxLength={100} defaultValue={settings.company} /></label><label>Currency code<select name="currency" defaultValue={settings.currency}>{['INR', 'USD', 'GBP', 'EUR', 'AED', 'AUD', 'SGD'].map(code => <option key={code}>{code}</option>)}</select></label></div><label>WhatsApp business number<input name="whatsapp" pattern="[0-9]{7,15}" defaultValue={settings.whatsapp} placeholder="Country code and number, digits only" /><small>This connects quotation requests from the public storefront.</small></label><label>Starting location / territory name<input name="location" required defaultValue={settings.location} placeholder="Your processing unit or outlet location" /></label><div className="form-grid"><label>Center latitude<input name="latitude" type="number" min="-90" max="90" step="any" required defaultValue={settings.latitude} /></label><label>Center longitude<input name="longitude" type="number" min="-180" max="180" step="any" required defaultValue={settings.longitude} /></label></div><label>Service radius<select name="radius" defaultValue={settings.radius}><option value="20">20 km</option><option value="25">25 km</option><option value="30">30 km</option></select></label><div className="info-note"><ShieldIcon /> Only an administrator can change these settings. Google Places discovery needs a server-side API key configured in Netlify.</div><button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save business settings'}<Check size={16} /></button></form></section>}
+    {section === 'settings' && <section className="panel settings-panel"><div className="panel-heading"><div><h2>Business essentials</h2><p>The foundation for your sales and distribution workspace.</p></div><SettingsIcon size={20} /></div><form onSubmit={async event => { event.preventDefault(); if (!live) { openAccount(); return } const values = new FormData(event.currentTarget); const data = Object.fromEntries(values) as unknown as Settings; data.latitude = Number(data.latitude); data.longitude = Number(data.longitude); data.radius = Number(data.radius); setBusy(true); setError(''); try { await request('/api/operations', { kind: 'settings', data }); setSettings(data); setToast('Business settings saved. Your website contact is connected.') } catch (cause) { setError((cause as Error).message) } finally { setBusy(false) } }}><div className="form-grid"><label>Company name<input name="company" required maxLength={100} defaultValue={settings.company} /></label><label>Currency code<select name="currency" defaultValue={settings.currency}>{['INR', 'USD', 'GBP', 'EUR', 'AED', 'AUD', 'SGD'].map(code => <option key={code}>{code}</option>)}</select></label></div><label>WhatsApp business number<input name="whatsapp" pattern="[0-9]{7,15}" defaultValue={settings.whatsapp} placeholder="Country code and number, digits only" /><small>This connects quotation requests from the public storefront.</small></label><label>Starting location / territory name<input name="location" required defaultValue={settings.location} placeholder="Your processing unit or outlet location" /></label><div className="form-grid"><label>Center latitude<input name="latitude" type="number" min="-90" max="90" step="any" required defaultValue={settings.latitude} /></label><label>Center longitude<input name="longitude" type="number" min="-180" max="180" step="any" required defaultValue={settings.longitude} /></label></div><label>Service radius<select name="radius" defaultValue={settings.radius}><option value="20">20 km</option><option value="25">25 km</option><option value="30">30 km</option></select></label><div className="info-note"><ShieldIcon /> Only an administrator can change these settings. Google Places discovery needs a server-side API key configured in Netlify.</div><button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save business settings'}<Check size={16} /></button></form></section>}
     {section === 'playbook' && <BusinessPlaybook />}
     </>}
     <footer className="workspace-footer"><span><Leaf size={13} /> FreshRoute · From farm to business</span><span>{live ? 'Connected to your business workspace' : 'Sample workspace · INR is an illustrative currency'}</span></footer></main></div>
     {toast && <div className="toast" role="status"><Check size={17} />{toast}<button className="icon-button" onClick={() => setToast('')} aria-label="Dismiss notification"><X size={15} /></button></div>}
     {modal && <Modal title={`${modal.record?.id ? 'Edit' : 'Add'} ${modal.kind === 'orders' ? 'order' : modal.kind === 'leads' ? 'lead' : modal.kind === 'supply' ? (franchiseMode ? 'stock request' : 'franchise supply') : modal.kind === 'sourcing' ? 'supplier purchase' : modal.kind === 'inventory' ? 'stock lot' : 'outlet'}`} close={() => { if (!busy) setModal(null) }}><RecordForm kind={modal.kind} record={modal.record} defaultFranchise={franchiseMode ? undefined : scopedFranchise?.id} outlets={outlets} franchises={franchises} franchiseMode={franchiseMode} busy={busy} error={formError} save={save} /></Modal>}
-    {userModal && <Modal title={userModal.user ? 'Edit user access' : 'Add user'} close={() => { if (!busy) setUserModal(null) }}><UserForm user={userModal.user} prefill={userModal.prefill} franchises={franchises} busy={busy} error={formError} save={saveUser} /></Modal>}
+    {userModal && <Modal title={userModal.user ? 'Edit user access' : 'Add user'} close={() => { if (!busy) setUserModal(null) }}><UserForm user={userModal.user} franchises={franchises} busy={busy} error={formError} save={saveUser} /></Modal>}
     {franchiseModal && <Modal title={franchiseModal.franchise ? 'Edit franchise' : 'Add franchise'} close={() => { if (!busy) setFranchiseModal(null) }}><FranchiseForm franchise={franchiseModal.franchise} busy={busy} error={formError} save={saveFranchise} /></Modal>}
-    {auth && <Modal title={authMode === 'invite' ? 'Welcome to your workspace' : authMode === 'recovery' ? 'Set a new password' : authMode === 'forgot' ? 'Recover your account' : 'Welcome back'} close={() => { if (!busy) setAuth(false) }}><p className="muted">{authMode === 'login' ? 'Sign in with your invited team account. Your real business records stay private.' : 'Use the email associated with your team account.'}</p><form onSubmit={authenticate}>{['login', 'forgot'].includes(authMode) && <label>Email address<input name="email" type="email" autoComplete="email" required /></label>}{authMode !== 'forgot' && <label>Password<input name="password" type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} minLength={authMode === 'login' ? 1 : 8} required /></label>}{formError && <p className="form-error" role="alert">{formError}</p>}<button className="primary full" disabled={busy}>{busy ? 'Connecting…' : authMode === 'login' ? 'Sign in to workspace' : authMode === 'forgot' ? 'Send recovery email' : 'Set password & continue'}<ArrowRight size={17} /></button>{authMode === 'login' && <button type="button" className="text-button auth-secondary" onClick={() => { setFormError(''); setAuthMode('forgot') }}>Forgot password?</button>}{authMode === 'forgot' && <button type="button" className="text-button auth-secondary" onClick={() => { setFormError(''); setAuthMode('login') }}><ChevronLeft size={14} /> Back to sign in</button>}</form><div className="auth-note">Netlify Identity checks your password. What you can see and change is set by an administrator in <strong>Users & access</strong>.</div></Modal>}
+    {auth && <Modal title={authMode === 'setup' ? 'Create the administrator' : authMode === 'account' ? 'Your account' : authMode === 'forgot' ? 'Forgot your password?' : 'Welcome back'} close={() => { if (!busy) setAuth(false) }}>
+      {authMode === 'forgot' ? <><p className="muted">Passwords are reset by your administrator. Ask them to set a new password for you on the <strong>Users & access</strong> page, then sign in and change it under your account.</p><button type="button" className="text-button auth-secondary" onClick={() => { setFormError(''); setAuthMode('login') }}><ChevronLeft size={14} /> Back to sign in</button></>
+      : <form onSubmit={authenticate}>
+        {authMode === 'login' && <p className="muted">Sign in with the email and password your administrator gave you.</p>}
+        {authMode === 'setup' && <p className="muted">This workspace has no administrator yet. The account you create here gets full access and can add everyone else.</p>}
+        {authMode === 'account' && <p className="muted">Signed in as <strong>{user?.name || user?.email}</strong>{user?.name && user.email ? ` (${user.email})` : ''}.</p>}
+        {authMode === 'setup' && <label>Your name<input name="name" autoComplete="name" maxLength={120} /></label>}
+        {['login', 'setup'].includes(authMode) && <label>Email address<input name="email" type="email" autoComplete="email" required /></label>}
+        {authMode === 'account' && <label>Current password<input name="current" type="password" autoComplete="current-password" required /></label>}
+        <label>{authMode === 'account' ? 'New password' : 'Password'}<input name="password" type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} minLength={authMode === 'login' ? 1 : 8} maxLength={128} required /></label>
+        {authMode !== 'login' && <label>Confirm {authMode === 'account' ? 'new ' : ''}password<input name="confirm" type="password" autoComplete="new-password" minLength={8} maxLength={128} required /></label>}
+        {authMode === 'setup' && setupCodeRequired && <label>Setup code<input name="code" required autoComplete="off" /><small>The OWNER_SETUP_CODE value set in Netlify.</small></label>}
+        {formError && <p className="form-error" role="alert">{formError}</p>}
+        <button className="primary full" disabled={busy}>{busy ? 'Please wait…' : authMode === 'login' ? 'Sign in to workspace' : authMode === 'setup' ? 'Create administrator & sign in' : 'Change password'}<ArrowRight size={17} /></button>
+        {authMode === 'login' && <button type="button" className="text-button auth-secondary" onClick={() => { setFormError(''); setAuthMode('forgot') }}>Forgot password?</button>}
+        {authMode === 'account' && <button type="button" className="outline full auth-signout" onClick={signOut} disabled={busy}>Sign out</button>}
+      </form>}
+      <div className="auth-note">Accounts are managed by your administrator in <strong>Users & access</strong>. There is no public sign-up.</div>
+    </Modal>}
   </div>
 }
 

@@ -12,7 +12,7 @@ const categories: Record<string, { types: string[]; segment: string }> = {
 
 export default async (req: Request) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
-  const access = await resolveAccess()
+  const access = await resolveAccess(req)
   if ('error' in access) return Response.json({ error: access.error === 'Sign in to access business records.' ? 'Sign in to discover businesses.' : access.error }, { status: access.status })
   if (!allowed(access, 'leads', 'edit')) return Response.json({ error: 'You need edit access to customers and leads to discover businesses.' }, { status: 403 })
   if (!sameOrigin(req)) return new Response('Forbidden', { status: 403 })

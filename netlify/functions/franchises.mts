@@ -25,7 +25,7 @@ function clean(data: Record<string, unknown>) {
 export default async (req: Request) => {
   const headers = { 'Cache-Control': 'no-store' }
   try {
-    const access = await resolveAccess()
+    const access = await resolveAccess(req)
     if ('error' in access) return Response.json({ error: access.error }, { status: access.status, headers })
     if (access.role === 'franchisee' || !allowed(access, 'franchises', 'view')) return Response.json({ error: 'You do not have access to the franchise network.' }, { status: 403, headers })
     if (req.method === 'GET') {
