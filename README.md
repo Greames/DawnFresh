@@ -52,6 +52,12 @@ Email is optional. Without it, admins set passwords on Users & access and share 
 3. In Netlify → Site configuration → Environment variables, add `RESEND_API_KEY` (the key) and `EMAIL_FROM` (for example `DawnFresh <login@yourdomain.com>`, on the verified domain).
 4. Redeploy. Users & access shows "Email is on" when both are set.
 
+## Troubleshooting
+
+- **Users or franchisees see a Netlify login page, or the app says Netlify asked for its own login** (older versions showed `Unexpected token '<'`): Netlify team login protection is on for production. In Netlify → Project configuration → Access & security → Visitor access, set it to non-production deploys only or turn it off. The app's own sign-in protects business data.
+- **A push to `main` does not appear on the site**: in Netlify → Deploys, check for a failed build, or for locked auto publishing / stopped builds, then use Trigger deploy.
+- **Changed an environment variable** (`GOOGLE_PLACES_API_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, `OWNER_SETUP_CODE`): redeploy; functions only read new values after a deploy.
+
 ## Important boundaries
 
 - The dashboard's order value represents booked sales, not collected revenue or profit. Receivables and unfulfilled orders are separate indicators. Cancelled orders are excluded from dashboard financial totals.
