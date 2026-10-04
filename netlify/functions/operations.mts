@@ -3,7 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { franchises, records, settings } from '../../db/schema.js'
 import { allowed, franchiseView, profile, resolveAccess, sameOrigin } from '../../db/access.js'
-import { distance, franchiseKinds, segments } from '../../src/lib/business.js'
+import { distance, franchiseKinds, segments, validRadius } from '../../src/lib/business.js'
 import type { Kind, Module } from '../../src/lib/business.js'
 
 const statuses: Record<string, string[]> = {
@@ -84,7 +84,7 @@ export default async (req: Request) => {
     if (body.kind === 'settings') {
       if (access.role !== 'admin') return Response.json({ error: 'Only administrators can change business settings.' }, { status: 403, headers })
       const data = body.data
-      if (!data || typeof data.company !== 'string' || !data.company.trim() || data.company.length > 100 || !/^[A-Z]{3}$/.test(data.currency) || (data.whatsapp && !/^\d{7,15}$/.test(data.whatsapp)) || !Number.isFinite(Number(data.latitude)) || Math.abs(Number(data.latitude)) > 90 || !Number.isFinite(Number(data.longitude)) || Math.abs(Number(data.longitude)) > 180 || !Number.isFinite(Number(data.radius)) || Number(data.radius) < 20 || Number(data.radius) > 30) return Response.json({ error: 'Check company, currency, international WhatsApp number, coordinates, and 20–30 km radius.' }, { status: 400, headers })
+      if (!data || typeof data.company !== 'string' || !data.company.trim() || data.company.length > 100 || !/^[A-Z]{3}$/.test(data.currency) || (data.whatsapp && !/^\d{7,15}$/.test(data.whatsapp)) || !Number.isFinite(Number(data.latitude)) || Math.abs(Number(data.latitude)) > 90 || !Number.isFinite(Number(data.longitude)) || Math.abs(Number(data.longitude)) > 180 || !validRadius(Number(data.radius))) return Response.json({ error: 'Check company, currency, international WhatsApp number, coordinates, and a 1–50 km radius.' }, { status: 400, headers })
       const saved = { company: data.company, currency: data.currency, whatsapp: data.whatsapp || '', location: String(data.location || '').slice(0, 180), latitude: Number(data.latitude), longitude: Number(data.longitude), radius: Number(data.radius) }
       await db.insert(settings).values({ id: 'main', data: saved }).onConflictDoUpdate({ target: settings.id, set: { data: saved } })
       return Response.json({ ok: true }, { headers })

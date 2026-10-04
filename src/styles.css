@@ -22,3 +22,5 @@
 @media(max-width:550px){.permission-row{flex-direction:column;align-items:flex-start}.access-summary{max-width:none}}
 .auth-signout{margin-top:10px}
 .locate-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-4px 0 17px}.locate-row small{flex:1;min-width:200px;font-size:10px;color:#969e97;line-height:1.5}
+.nearby-panel{margin-bottom:22px}.nearby-status{padding:18px 23px 22px;font-size:12px}.nearby-panel .nearby-list{padding-bottom:10px}.discovery-controls{margin-bottom:12px}.discovery-controls .discovery-category{margin-bottom:0}
+.checkbox-row{display:flex;align-items:flex-start;gap:10px;cursor:pointer}.checkbox-row input{width:auto;margin-top:3px}.checkbox-row strong{display:block;font-size:12px}.checkbox-row small{display:block;margin-top:2px}.email-link-button{margin-bottom:14px;display:flex;justify-content:center;gap:8px}

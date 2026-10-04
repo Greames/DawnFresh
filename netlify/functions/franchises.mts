@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { appUsers, franchises } from '../../db/schema.js'
 import { allowed, franchiseView, resolveAccess, sameOrigin } from '../../db/access.js'
-import { FRANCHISE_RADIUS_KM, franchiseStatuses } from '../../src/lib/business.js'
+import { FRANCHISE_RADIUS_KM, franchiseStatuses, validRadius } from '../../src/lib/business.js'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -19,7 +19,9 @@ function clean(data: Record<string, unknown>) {
   if (typeof latitude !== 'number' || !Number.isFinite(latitude) || Math.abs(latitude) > 90) return null
   if (typeof longitude !== 'number' || !Number.isFinite(longitude) || Math.abs(longitude) > 180) return null
   if (!franchiseStatuses.includes(String(data.status))) return null
-  return { name, location, latitude, longitude, radius: FRANCHISE_RADIUS_KM, status: String(data.status), ...(phone ? { phone } : {}), ...(note ? { note } : {}) }
+  const radius = data.radius === undefined ? FRANCHISE_RADIUS_KM : data.radius
+  if (!validRadius(radius)) return null
+  return { name, location, latitude, longitude, radius, status: String(data.status), ...(phone ? { phone } : {}), ...(note ? { note } : {}) }
 }
 
 export default async (req: Request) => {
@@ -46,7 +48,7 @@ export default async (req: Request) => {
     let body
     try { body = JSON.parse(raw) } catch { return Response.json({ error: 'Invalid request data.' }, { status: 400, headers }) }
     const data = clean(body?.data)
-    if (!data) return Response.json({ error: 'Check the franchise name, location, coordinates, phone and status.' }, { status: 400, headers })
+    if (!data) return Response.json({ error: 'Check the franchise name, location, coordinates, radius (1–50 km), phone and status.' }, { status: 400, headers })
     if (req.method === 'POST') {
       const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return Response.json({ error: 'Enter a valid contact email for the franchise.' }, { status: 400, headers })

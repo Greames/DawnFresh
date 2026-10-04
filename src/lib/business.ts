@@ -66,9 +66,16 @@ export function can(permissions: Permissions | undefined, module: Module, level:
 }
 export type Center = { latitude: number; longitude: number }
 export const FRANCHISE_RADIUS_KM = 20
+// Google Places nearby search allows a circle of at most 50 km.
+export const MAX_RADIUS_KM = 50
+export const radiusOptions = [5, 10, 15, 20, 25, 30, 40, 50]
+export function validRadius(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_RADIUS_KM
+}
 export const franchiseStatuses = ['Active', 'Inactive']
 export const segments = ['Restaurant', 'Caterer', 'Hotel', 'Other']
 export const discoveryCategories = [
+  { id: 'all', label: 'Restaurants, caterers & hotels', segment: '' },
   { id: 'restaurant', label: 'Restaurants', segment: 'Restaurant' },
   { id: 'caterer', label: 'Caterers', segment: 'Caterer' },
   { id: 'hotel', label: 'Hotels', segment: 'Hotel' },

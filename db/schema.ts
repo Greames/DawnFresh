@@ -32,6 +32,16 @@ export const sessions = pgTable('sessions', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 }, table => [index('sessions_user_idx').on(table.userId)])
 
+// One-time links emailed to users to set (invite) or reset their password. Only a SHA-256 hash is stored.
+export const passwordTokens = pgTable('password_tokens', {
+  tokenHash: text('token_hash').primaryKey(),
+  userId: uuid('user_id').notNull().references(() => appUsers.id, { onDelete: 'cascade' }),
+  purpose: text().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+}, table => [index('password_tokens_user_idx').on(table.userId)])
+
 export const records = pgTable('operations_records', {
   id: uuid().defaultRandom().primaryKey(),
   kind: text().notNull(),

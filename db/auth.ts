@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
-import { and, eq, gt, lt } from 'drizzle-orm'
+import { and, eq, gt, isNull, lt } from 'drizzle-orm'
 import { db } from './index.js'
-import { appUsers, sessions } from './schema.js'
+import { appUsers, passwordTokens, sessions } from './schema.js'
 
 export const SESSION_COOKIE = 'fr_session'
 const SESSION_DAYS = 14
@@ -88,4 +88,30 @@ export async function checkCredentials(email: string, password: string) {
   if (user.status !== 'Active') return { error: 'Your access has been disabled. Contact an administrator.' }
   await db.update(appUsers).set({ failedAttempts: 0, lockedUntil: null, lastSeenAt: new Date() }).where(eq(appUsers.id, user.id))
   return { user }
+}
+
+// One-time links for setting (invite) or resetting a password. Issuing a new link
+// invalidates the user's earlier unused links.
+export async function createPasswordToken(userId: string, purpose: 'invite' | 'reset', hours: number) {
+  const token = randomBytes(32).toString('base64url')
+  await db.delete(passwordTokens).where(eq(passwordTokens.userId, userId))
+  await db.insert(passwordTokens).values({ tokenHash: tokenHash(token), userId, purpose, expiresAt: new Date(Date.now() + hours * 3600000) })
+  return token
+}
+
+export async function recentPasswordToken(userId: string, minutes: number) {
+  const [row] = await db.select({ tokenHash: passwordTokens.tokenHash }).from(passwordTokens).where(and(eq(passwordTokens.userId, userId), gt(passwordTokens.createdAt, new Date(Date.now() - minutes * 60000)), isNull(passwordTokens.usedAt))).limit(1)
+  return !!row
+}
+
+export async function passwordTokenUser(token: unknown) {
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null
+  const [row] = await db.select({ user: appUsers, purpose: passwordTokens.purpose }).from(passwordTokens).innerJoin(appUsers, eq(passwordTokens.userId, appUsers.id)).where(and(eq(passwordTokens.tokenHash, tokenHash(token)), gt(passwordTokens.expiresAt, new Date()), isNull(passwordTokens.usedAt)))
+  return row && row.user.status === 'Active' ? row : null
+}
+
+// Marks the link used; succeeds only once even if two requests race.
+export async function consumePasswordToken(token: string) {
+  const [used] = await db.update(passwordTokens).set({ usedAt: new Date() }).where(and(eq(passwordTokens.tokenHash, tokenHash(token)), gt(passwordTokens.expiresAt, new Date()), isNull(passwordTokens.usedAt))).returning({ userId: passwordTokens.userId })
+  return used?.userId ?? null
 }

@@ -3,7 +3,8 @@ import { and, asc, eq, isNotNull } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { appUsers } from '../../db/schema.js'
 import { profile, resolveAccess, sameOrigin } from '../../db/access.js'
-import { checkCredentials, createSession, endAllSessions, endSession, hashPassword, validPassword, verifyPassword } from '../../db/auth.js'
+import { checkCredentials, consumePasswordToken, createPasswordToken, createSession, endAllSessions, endSession, hashPassword, passwordTokenUser, recentPasswordToken, validPassword, verifyPassword } from '../../db/auth.js'
+import { emailEnabled, sendPasswordLink } from '../../db/email.js'
 
 const headers = { 'Cache-Control': 'no-store' }
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -21,8 +22,8 @@ export default async (req: Request) => {
   try {
     if (req.method === 'GET') {
       const access = await resolveAccess(req)
-      if ('error' in access) return json({ user: null, error: access.status === 401 ? undefined : access.error, setupRequired: access.status === 401 && !(await hasActiveAdmin()), setupCodeRequired: !!process.env.OWNER_SETUP_CODE })
-      return json({ user: profile(access) })
+      if ('error' in access) return json({ user: null, error: access.status === 401 ? undefined : access.error, setupRequired: access.status === 401 && !(await hasActiveAdmin()), setupCodeRequired: !!process.env.OWNER_SETUP_CODE, emailEnabled: emailEnabled() })
+      return json({ user: profile(access), emailEnabled: emailEnabled() })
     }
     if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers })
     if (!sameOrigin(req)) return new Response('Forbidden', { status: 403, headers })
@@ -37,6 +38,35 @@ export default async (req: Request) => {
       const result = await checkCredentials(email, body.password)
       if ('error' in result) return json({ error: result.error }, 401)
       return json({ ok: true }, 200, await createSession(req, result.user.id))
+    }
+
+    if (body?.action === 'forgot') {
+      // Same answer whether or not the email exists, so accounts can't be discovered.
+      const answer = { ok: true, message: 'If that email has an active account, a reset link is on its way. Check your inbox and spam folder.' }
+      if (!emailEnabled()) return json({ error: 'Password emails are not set up. Ask your administrator to set a new password for you.' }, 503)
+      if (!emailPattern.test(email)) return json({ error: 'Enter a valid email address.' }, 400)
+      const [user] = await db.select().from(appUsers).where(eq(appUsers.email, email))
+      if (user && user.status === 'Active' && !(await recentPasswordToken(user.id, 2))) {
+        const token = await createPasswordToken(user.id, user.passwordHash ? 'reset' : 'invite', 1)
+        await sendPasswordLink(req, user.email, user.name, token, user.passwordHash ? 'reset' : 'invite', 1)
+      }
+      return json(answer)
+    }
+
+    if (body?.action === 'token') {
+      const found = await passwordTokenUser(body.token)
+      if (!found) return json({ valid: false, error: 'This link has expired or was already used. Ask for a new one.' })
+      return json({ valid: true, purpose: found.purpose, email: found.user.email, name: found.user.name || undefined })
+    }
+
+    if (body?.action === 'reset') {
+      if (!validPassword(body.password)) return json({ error: 'Use a password of 8–128 characters.' }, 400)
+      const found = await passwordTokenUser(body.token)
+      const userId = found ? await consumePasswordToken(String(body.token)) : null
+      if (!found || !userId) return json({ error: 'This link has expired or was already used. Ask for a new one.' }, 400)
+      await db.update(appUsers).set({ passwordHash: await hashPassword(body.password), failedAttempts: 0, lockedUntil: null }).where(eq(appUsers.id, userId))
+      await endAllSessions(userId)
+      return json({ ok: true }, 200, await createSession(req, userId))
     }
 
     if (body?.action === 'logout') return json({ ok: true }, 200, await endSession(req))

@@ -4,7 +4,8 @@ import { db } from '../../db/index.js'
 import { appUsers, franchises } from '../../db/schema.js'
 import { resolveAccess, sameOrigin } from '../../db/access.js'
 import type { AppUserRow } from '../../db/access.js'
-import { endAllSessions, hashPassword, validPassword } from '../../db/auth.js'
+import { createPasswordToken, endAllSessions, hashPassword, validPassword } from '../../db/auth.js'
+import { emailEnabled, sendPasswordLink } from '../../db/email.js'
 import { roleModules, userStatuses } from '../../src/lib/business.js'
 import type { Role } from '../../src/lib/business.js'
 
@@ -46,7 +47,7 @@ export default async (req: Request) => {
     if (access.role !== 'admin') return Response.json({ error: 'Only administrators can manage users and access.' }, { status: 403, headers })
     if (req.method === 'GET') {
       const rows = await db.select().from(appUsers).orderBy(appUsers.createdAt)
-      return Response.json({ users: rows.map(view) }, { headers })
+      return Response.json({ users: rows.map(view), emailEnabled: emailEnabled() }, { headers })
     }
     if (!['POST', 'PATCH'].includes(req.method)) return new Response('Method not allowed', { status: 405, headers })
     if (!sameOrigin(req)) return new Response('Forbidden', { status: 403, headers })
@@ -55,6 +56,19 @@ export default async (req: Request) => {
     let body
     try { body = JSON.parse(raw) } catch { return Response.json({ error: 'Invalid request data.' }, { status: 400, headers }) }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'Invalid request data.' }, { status: 400, headers })
+    if (body.action === 'send-link') {
+      // Emails a set-password link: an invitation if they never had a password, otherwise a reset.
+      if (!emailEnabled()) return Response.json({ error: 'Email is not set up. Set a password for them instead.' }, { status: 503, headers })
+      if (!uuidPattern.test(body.id || '')) return Response.json({ error: 'Invalid user.' }, { status: 400, headers })
+      const [target] = await db.select().from(appUsers).where(eq(appUsers.id, body.id))
+      if (!target) return Response.json({ error: 'User not found.' }, { status: 404, headers })
+      if (target.status !== 'Active') return Response.json({ error: 'Activate this user before sending a link.' }, { status: 400, headers })
+      const purpose = target.passwordHash ? 'reset' : 'invite'
+      const hours = purpose === 'invite' ? 72 : 24
+      const sent = await sendPasswordLink(req, target.email, target.name, await createPasswordToken(target.id, purpose, hours), purpose, hours)
+      if (!sent) return Response.json({ error: 'The email could not be sent. Check the email settings in Netlify, or set a password instead.' }, { status: 502, headers })
+      return Response.json({ ok: true, purpose }, { headers })
+    }
     const cleaned = await cleanAccess(body)
     if ('error' in cleaned) return Response.json({ error: cleaned.error }, { status: 400, headers })
     if (body.password && !validPassword(body.password)) return Response.json({ error: 'The password must be 8–128 characters.' }, { status: 400, headers })
@@ -63,11 +77,15 @@ export default async (req: Request) => {
     if (req.method === 'POST') {
       const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return Response.json({ error: 'Enter a valid email address.' }, { status: 400, headers })
-      if (!passwordHash) return Response.json({ error: 'Set a password so this user can sign in.' }, { status: 400, headers })
+      const invite = body.invite === true
+      if (invite && !emailEnabled()) return Response.json({ error: 'Email is not set up, so set a password for this user instead.' }, { status: 400, headers })
+      if (!passwordHash && !invite) return Response.json({ error: 'Set a password, or email them an invitation, so this user can sign in.' }, { status: 400, headers })
       const [taken] = await db.select({ id: appUsers.id }).from(appUsers).where(eq(appUsers.email, email))
       if (taken) return Response.json({ error: 'This email already has access. Edit the existing user instead.' }, { status: 409, headers })
       const [created] = await db.insert(appUsers).values({ email, passwordHash, ...cleaned.values }).returning()
-      return Response.json(view(created), { status: 201, headers })
+      let emailSent: boolean | undefined
+      if (invite && created.status === 'Active') emailSent = await sendPasswordLink(req, created.email, created.name, await createPasswordToken(created.id, passwordHash ? 'reset' : 'invite', 72), passwordHash ? 'reset' : 'invite', 72)
+      return Response.json({ ...view(created), emailSent }, { status: 201, headers })
     }
 
     if (!uuidPattern.test(body.id || '')) return Response.json({ error: 'Invalid user.' }, { status: 400, headers })
