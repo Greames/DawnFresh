@@ -1,0 +1,80 @@
+export type Kind = 'orders' | 'leads' | 'sourcing' | 'inventory' | 'outlets'
+export type BusinessData = {
+  name: string
+  status: string
+  product?: string
+  quantity?: number
+  unit?: string
+  amount?: number
+  paid?: number
+  cost?: number
+  phone?: string
+  note?: string
+  date?: string
+  expiry?: string
+  temperature?: number
+  latitude?: number
+  longitude?: number
+  outlet?: string
+  batch?: string
+}
+export type BusinessRecord = { id: string; kind: Kind; data: BusinessData; createdAt: string }
+export type Settings = { company: string; currency: string; whatsapp: string; location: string; latitude: number; longitude: number; radius: number }
+export const defaultSettings: Settings = { company: 'FreshRoute', currency: 'INR', whatsapp: '', location: '', latitude: 0, longitude: 0, radius: 25 }
+export const products = [
+  { name: 'Chicken', subtitle: 'Whole birds & custom cuts', emoji: '🍗', color: '#fff0e8', description: 'Whole chicken, curry cuts, boneless and restaurant-ready portions.' },
+  { name: 'Mutton', subtitle: 'Premium, precisely portioned', emoji: '🥩', color: '#fbe8e9', description: 'Bone-in cuts, boneless portions and custom bulk requirements.' },
+  { name: 'Eggs', subtitle: 'Farm-sourced, kitchen-ready', emoji: '🥚', color: '#f6efdc', description: 'Fresh eggs by the tray for breakfast service, baking and everyday cooking.' },
+  { name: 'Fish', subtitle: 'Fresh catch, clean cuts', emoji: '🐟', color: '#e7f1f9', description: 'Whole fish, cleaned portions and fillets. Varieties subject to availability.' },
+  { name: 'Prawns', subtitle: 'Sorted to your specification', emoji: '🦐', color: '#faece4', description: 'Size-graded prawns with whole, peeled and cleaned options.' },
+]
+export const statusOptions: Record<Kind, string[]> = {
+  orders: ['Pending', 'Processing', 'Ready', 'Out for delivery', 'Delivered', 'Cancelled'],
+  leads: ['New lead', 'Contacted', 'Qualified', 'Customer'],
+  sourcing: ['Planned', 'Ordered', 'Received'],
+  inventory: ['Available', 'Low stock', 'On hold'],
+  outlets: ['Active', 'Inactive'],
+}
+export function dateOffset(days: number) {
+  const date = new Date()
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+export function demoRecords(): BusinessRecord[] {
+  const rows: { kind: Kind; data: BusinessData }[] = [
+    { kind: 'orders', data: { name: 'The Urban Kitchen', product: 'Chicken', quantity: 45, unit: 'kg', amount: 12600, paid: 12600, status: 'Delivered', date: dateOffset(0), outlet: 'Central processing unit' } },
+    { kind: 'orders', data: { name: 'Spice & Soul', product: 'Mutton', quantity: 20, unit: 'kg', amount: 15800, paid: 5000, status: 'Out for delivery', date: dateOffset(0), outlet: 'Central processing unit' } },
+    { kind: 'orders', data: { name: 'Celebration Caterers', product: 'Chicken', quantity: 80, unit: 'kg', amount: 21600, paid: 10800, status: 'Processing', date: dateOffset(0), outlet: 'Central processing unit' } },
+    { kind: 'orders', data: { name: 'Coastal Table', product: 'Prawns', quantity: 18, unit: 'kg', amount: 11700, paid: 0, status: 'Pending', date: dateOffset(0), outlet: 'Retail outlet' } },
+    { kind: 'orders', data: { name: 'Morning Glory Café', product: 'Eggs', quantity: 15, unit: 'trays', amount: 3150, paid: 3150, status: 'Delivered', date: dateOffset(-1) } },
+    { kind: 'orders', data: { name: 'Harbour House', product: 'Fish', quantity: 35, unit: 'kg', amount: 14700, paid: 14700, status: 'Delivered', date: dateOffset(-2) } },
+    { kind: 'orders', data: { name: 'Green Leaf Banquets', product: 'Mutton', quantity: 30, unit: 'kg', amount: 23700, paid: 23700, status: 'Delivered', date: dateOffset(-3) } },
+    { kind: 'orders', data: { name: 'The Urban Kitchen', product: 'Chicken', quantity: 40, unit: 'kg', amount: 11200, paid: 11200, status: 'Delivered', date: dateOffset(-4) } },
+    { kind: 'orders', data: { name: 'Spice & Soul', product: 'Chicken', quantity: 25, unit: 'kg', amount: 7000, paid: 7000, status: 'Delivered', date: dateOffset(-5) } },
+    { kind: 'orders', data: { name: 'Celebration Caterers', product: 'Fish', quantity: 30, unit: 'kg', amount: 12600, paid: 12600, status: 'Delivered', date: dateOffset(-6) } },
+    { kind: 'leads', data: { name: 'Saffron Bistro', status: 'Qualified', note: 'Interested in daily chicken supply', latitude: 0.05, longitude: 0.02, amount: 45000 } },
+    { kind: 'leads', data: { name: 'Grand Feast Catering', status: 'Contacted', note: 'Follow up on weekend requirements', latitude: -0.09, longitude: 0.07, amount: 65000 } },
+    { kind: 'leads', data: { name: 'The Garden Restaurant', status: 'New lead', note: 'Introduce wholesale supply', latitude: 0.12, longitude: -0.04, amount: 28000 } },
+    { kind: 'leads', data: { name: 'The Urban Kitchen', status: 'Customer', latitude: 0.03, longitude: -0.06, amount: 50000 } },
+    ...products.map((product, index) => ({ kind: 'inventory' as Kind, data: { name: `${product.name} — fresh stock`, product: product.name, quantity: [245, 86, 120, 64, 18][index], unit: index === 2 ? 'trays' : 'kg', status: index === 4 ? 'Low stock' : 'Available', batch: `FR-${1008 + index}`, date: dateOffset(-1), expiry: dateOffset(index === 2 ? 6 : 1), temperature: 3, outlet: 'Central processing unit' } })),
+    { kind: 'sourcing', data: { name: 'Green Valley Poultry', product: 'Chicken', quantity: 350, unit: 'kg', amount: 66500, paid: 30000, status: 'Ordered', date: dateOffset(1), note: 'Morning intake • check weight and quality' } },
+    { kind: 'sourcing', data: { name: 'Riverbank Fisheries', product: 'Fish', quantity: 120, unit: 'kg', amount: 32400, paid: 32400, status: 'Received', date: dateOffset(0), note: 'Temperature and quality checked at intake' } },
+    { kind: 'sourcing', data: { name: 'Meadow Farms', product: 'Eggs', quantity: 150, unit: 'trays', amount: 27000, paid: 0, status: 'Planned', date: dateOffset(2) } },
+    { kind: 'outlets', data: { name: 'Central processing unit', status: 'Active', note: 'Sourcing, processing & wholesale dispatch' } },
+    { kind: 'outlets', data: { name: 'Retail outlet', status: 'Active', note: 'Walk-in retail & customer pickup' } },
+    { kind: 'outlets', data: { name: 'Mobile outlet', status: 'Active', note: 'Neighbourhood routes & direct retail' } },
+  ]
+  return rows.map((row, index) => ({ ...row, id: `demo-${index + 1}`, createdAt: new Date().toISOString() }))
+}
+export function distance(latitude: number, longitude: number, center: Settings) {
+  const radians = Math.PI / 180
+  const deltaLatitude = (latitude - center.latitude) * radians
+  const deltaLongitude = (longitude - center.longitude) * radians
+  const haversine = Math.sin(deltaLatitude / 2) ** 2 + Math.cos(center.latitude * radians) * Math.cos(latitude * radians) * Math.sin(deltaLongitude / 2) ** 2
+  const bounded = Math.min(1, Math.max(0, haversine))
+  return 6371 * 2 * Math.atan2(Math.sqrt(bounded), Math.sqrt(1 - bounded))
+}
+export function money(value: number, currency: string) {
+  try { return new Intl.NumberFormat('en', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value) }
+  catch { return `${currency} ${value.toLocaleString('en')}` }
+}
