@@ -18,7 +18,7 @@ async function search(key: string, type: string, rank: 'DISTANCE' | 'POPULARITY'
   const response = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri,places.internationalPhoneNumber' },
     body: JSON.stringify({ includedTypes: [type], maxResultCount: 20, rankPreference: rank, locationRestriction: { circle: { center: { latitude, longitude }, radius: radius * 1000 } } }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(7000), // Netlify stops functions after 10 seconds
   })
   if (!response.ok) throw new Error('provider')
   const data = await response.json()
@@ -27,7 +27,9 @@ async function search(key: string, type: string, rank: 'DISTANCE' | 'POPULARITY'
 
 export default async (req: Request) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
-  const access = await resolveAccess(req)
+  let access
+  try { access = await resolveAccess(req) }
+  catch { return Response.json({ error: 'Discovery is temporarily unavailable. Try again or add leads manually.' }, { status: 503 }) }
   if ('error' in access) return Response.json({ error: access.error === 'Sign in to access business records.' ? 'Sign in to discover businesses.' : access.error }, { status: access.status })
   if (!allowed(access, 'leads', 'edit')) return Response.json({ error: 'You need edit access to customers and leads to discover businesses.' }, { status: 403 })
   if (!sameOrigin(req)) return new Response('Forbidden', { status: 403 })

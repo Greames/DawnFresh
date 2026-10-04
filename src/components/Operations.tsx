@@ -36,8 +36,17 @@ const franchiseNavigation: NavItem[] = [
 type Place = { id: string; displayName: { text: string }; formattedAddress: string; internationalPhoneNumber?: string; googleMapsUri?: string; location: { latitude: number; longitude: number }; segment?: string; distanceKm?: number; saved?: 'here' | 'elsewhere' }
 
 async function request(path: string, body?: unknown, method = 'POST') {
-  const response = await fetch(path, body ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined)
-  const data = await response.json()
+  let response: Response
+  try { response = await fetch(path, body ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined) }
+  catch { throw new Error('Could not reach the server. Check your internet connection and try again.') }
+  const text = await response.text()
+  let data
+  try { data = text ? JSON.parse(text) : {} }
+  catch {
+    // A web page instead of data: usually Netlify's own login page (team login protection) or a platform error/timeout.
+    if (/netlify/i.test(text) && /log ?in|sign ?in|password/i.test(text)) throw new Error('Netlify asked for its own login instead of letting the app answer. In Netlify, turn off team login protection for the live site (Project configuration → Access & security → Visitor access), then reload this page.')
+    throw new Error(`The server didn’t answer properly (error ${response.status}). Please wait a moment and try again.`)
+  }
   if (!response.ok) throw new Error(data.error || 'This action could not be completed.')
   return data
 }

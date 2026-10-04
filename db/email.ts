@@ -29,7 +29,7 @@ export async function sendEmail(to: string, subject: string, text: string, html:
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, text, html }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(6000), // stay well inside Netlify's 10-second function limit
     })
     return response.ok
   } catch { return false }
