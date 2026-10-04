@@ -2,9 +2,9 @@ import type { Config } from '@netlify/functions'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { franchises, records, settings } from '../../db/schema.js'
-import { franchiseView, resolveAccess, sameOrigin } from '../../db/access.js'
+import { allowed, franchiseView, profile, resolveAccess, sameOrigin } from '../../db/access.js'
 import { distance, franchiseKinds, segments } from '../../src/lib/business.js'
-import type { Kind } from '../../src/lib/business.js'
+import type { Kind, Module } from '../../src/lib/business.js'
 
 const statuses: Record<string, string[]> = {
   orders: ['Pending', 'Processing', 'Ready', 'Out for delivery', 'Delivered', 'Cancelled'],
@@ -58,17 +58,21 @@ export default async (req: Request) => {
   try {
     const access = await resolveAccess()
     if ('error' in access) return Response.json({ error: access.error }, { status: access.status, headers })
-    const own = access.scope === 'franchise' ? access.franchise : null
+    const own = access.role === 'franchisee' ? access.franchise : null
     if (req.method === 'GET') {
+      // Only record kinds the user may view are returned.
+      const visible = (rows: (typeof records.$inferSelect)[]) => rows.filter(row => Object.hasOwn(statuses, row.kind) && allowed(access, row.kind as Module, 'view'))
       if (own) {
         const rows = await db.select().from(records).where(eq(records.franchiseId, own.id)).orderBy(desc(records.createdAt))
         const [configuration] = await db.select().from(settings).where(eq(settings.id, 'main'))
-        return Response.json({ records: rows, settings: { company: configuration?.data.company, currency: configuration?.data.currency }, franchise: franchiseView(own) }, { headers })
+        return Response.json({ records: visible(rows), settings: { company: configuration?.data.company, currency: configuration?.data.currency }, franchise: franchiseView(own), access: profile(access) }, { headers })
       }
       const rows = await db.select().from(records).orderBy(desc(records.createdAt))
       const [configuration] = await db.select().from(settings).where(eq(settings.id, 'main'))
       const network = await db.select().from(franchises).orderBy(franchises.createdAt)
-      return Response.json({ records: rows, settings: configuration?.data || {}, franchises: network.map(franchiseView) }, { headers })
+      // Without franchise-network access, staff still get names so network records stay labelled.
+      const listed = allowed(access, 'franchises', 'view') ? network.map(franchiseView) : network.map(row => ({ id: row.id, name: row.data.name, location: '', latitude: 0, longitude: 0, radius: row.data.radius, status: row.data.status, email: '' }))
+      return Response.json({ records: visible(rows), settings: configuration?.data || {}, franchises: listed, access: profile(access) }, { headers })
     }
     if (!['POST', 'PATCH'].includes(req.method)) return new Response('Method not allowed', { status: 405, headers })
     if (!sameOrigin(req)) return new Response('Forbidden', { status: 403, headers })
@@ -78,7 +82,7 @@ export default async (req: Request) => {
     try { body = JSON.parse(raw) } catch { return Response.json({ error: 'Invalid request data.' }, { status: 400, headers }) }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'Invalid request data.' }, { status: 400, headers })
     if (body.kind === 'settings') {
-      if (access.scope !== 'company' || !access.admin) return Response.json({ error: 'Only administrators can change business settings.' }, { status: 403, headers })
+      if (access.role !== 'admin') return Response.json({ error: 'Only administrators can change business settings.' }, { status: 403, headers })
       const data = body.data
       if (!data || typeof data.company !== 'string' || !data.company.trim() || data.company.length > 100 || !/^[A-Z]{3}$/.test(data.currency) || (data.whatsapp && !/^\d{7,15}$/.test(data.whatsapp)) || !Number.isFinite(Number(data.latitude)) || Math.abs(Number(data.latitude)) > 90 || !Number.isFinite(Number(data.longitude)) || Math.abs(Number(data.longitude)) > 180 || !Number.isFinite(Number(data.radius)) || Number(data.radius) < 20 || Number(data.radius) > 30) return Response.json({ error: 'Check company, currency, international WhatsApp number, coordinates, and 20–30 km radius.' }, { status: 400, headers })
       const saved = { company: data.company, currency: data.currency, whatsapp: data.whatsapp || '', location: String(data.location || '').slice(0, 180), latitude: Number(data.latitude), longitude: Number(data.longitude), radius: Number(data.radius) }
@@ -86,6 +90,8 @@ export default async (req: Request) => {
       return Response.json({ ok: true }, { headers })
     }
     if (own && !franchiseKinds.includes(body.kind as Kind)) return Response.json({ error: 'Franchise accounts can manage orders, leads and supply requests only.' }, { status: 403, headers })
+    if (typeof body.kind !== 'string' || !Object.hasOwn(statuses, body.kind)) return Response.json({ error: 'Unknown record type.' }, { status: 400, headers })
+    if (!allowed(access, body.kind as Module, 'edit')) return Response.json({ error: 'You have view-only or no access to these records. Ask an administrator.' }, { status: 403, headers })
     if (!body.data || !validate(body.kind, body.data)) return Response.json({ error: 'Check required fields, status, amounts, and coordinates.' }, { status: 400, headers })
     const data: Record<string, unknown> = { ...body.data }
     let existing: typeof records.$inferSelect | undefined

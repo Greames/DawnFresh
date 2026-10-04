@@ -2,7 +2,7 @@ import type { Config } from '@netlify/functions'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { franchises, records } from '../../db/schema.js'
-import { resolveAccess, sameOrigin } from '../../db/access.js'
+import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
 
 const categories: Record<string, { types: string[]; segment: string }> = {
   restaurant: { types: ['restaurant'], segment: 'Restaurant' },
@@ -14,6 +14,7 @@ export default async (req: Request) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
   const access = await resolveAccess()
   if ('error' in access) return Response.json({ error: access.error === 'Sign in to access business records.' ? 'Sign in to discover businesses.' : access.error }, { status: access.status })
+  if (!allowed(access, 'leads', 'edit')) return Response.json({ error: 'You need edit access to customers and leads to discover businesses.' }, { status: 403 })
   if (!sameOrigin(req)) return new Response('Forbidden', { status: 403 })
   const key = process.env.GOOGLE_PLACES_API_KEY
   if (!key) return Response.json({ error: 'Live discovery is not connected. Add GOOGLE_PLACES_API_KEY in Netlify, enable Places API (New), and redeploy. You can add leads manually now.' }, { status: 503 })
@@ -22,7 +23,7 @@ export default async (req: Request) => {
     const category = categories[String(body?.category || 'restaurant')]
     if (!category) return Response.json({ error: 'Choose restaurants, caterers or hotels.' }, { status: 400 })
     // A franchise always searches its own allocated territory; the client cannot move it.
-    let franchise = access.scope === 'franchise' ? access.franchise : undefined
+    let franchise = access.role === 'franchisee' ? access.franchise ?? undefined : undefined
     if (!franchise && typeof body?.franchiseId === 'string' && body.franchiseId) {
       if (!/^[0-9a-f-]{36}$/i.test(body.franchiseId)) return Response.json({ error: 'Choose a valid franchise.' }, { status: 400 })
       ;[franchise] = await db.select().from(franchises).where(eq(franchises.id, body.franchiseId))

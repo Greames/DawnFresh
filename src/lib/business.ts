@@ -22,7 +22,49 @@ export type BusinessData = {
 }
 export type BusinessRecord = { id: string; kind: Kind; data: BusinessData; createdAt: string; franchiseId?: string | null }
 export type Franchise = { id: string; name: string; email: string; phone?: string; location: string; latitude: number; longitude: number; radius: number; status: string; note?: string; createdAt?: string }
-export type FranchiseLogin = { exists: boolean; confirmedAt?: string; lastSignInAt?: string; invitedAt?: string }
+export type FranchiseLogins = { users: number; active: number; lastSignInAt?: string }
+export type Module = 'orders' | 'leads' | 'inventory' | 'sourcing' | 'outlets' | 'supply' | 'franchises'
+export type AccessLevel = 'none' | 'view' | 'edit'
+export type Role = 'admin' | 'staff' | 'franchisee'
+export type Permissions = Record<Module, AccessLevel>
+export type AccessProfile = { role: Role; permissions: Permissions; name?: string; email?: string; owner: boolean }
+export type AppUser = { id: string; email: string; name?: string; role: Role; franchiseId?: string | null; permissions: Partial<Permissions>; status: string; identityId?: string | null; createdAt?: string; lastSeenAt?: string | null; login?: { exists: boolean; lastSignInAt?: string; confirmedAt?: string; invitedAt?: string } }
+export type PendingAccount = { identityId: string; email: string; name?: string; lastSignInAt?: string; roles: string[] }
+export const modules: { id: Module; label: string; short: string; detail: string }[] = [
+  { id: 'orders', short: 'Orders', label: 'Orders & deliveries', detail: 'Customer orders, payments received and the delivery view' },
+  { id: 'leads', short: 'Leads', label: 'Customers, leads & territory', detail: 'Leads, conversions and business discovery' },
+  { id: 'supply', short: 'Supply', label: 'Franchise supply', detail: 'Stock supplied by the company to franchises' },
+  { id: 'inventory', short: 'Inventory', label: 'Inventory', detail: 'Stock lots, batches and expiry' },
+  { id: 'sourcing', short: 'Sourcing', label: 'Sourcing', detail: 'Farmer and supplier purchases' },
+  { id: 'outlets', short: 'Outlets', label: 'Outlets', detail: 'Processing unit, retail and mobile outlets' },
+  { id: 'franchises', short: 'Network', label: 'Franchise network', detail: 'Franchise locations and results' },
+]
+export const roles: { id: Role; label: string; detail: string }[] = [
+  { id: 'admin', label: 'Admin', detail: 'Full access, business settings, and users & access' },
+  { id: 'staff', label: 'Company staff', detail: 'Company records, limited by the permissions below' },
+  { id: 'franchisee', label: 'Franchisee', detail: 'One franchise only: its orders, leads and stock requests' },
+]
+export const accessLevels: { id: AccessLevel; label: string }[] = [{ id: 'none', label: 'No access' }, { id: 'view', label: 'View' }, { id: 'edit', label: 'Edit' }]
+export const userStatuses = ['Active', 'Disabled']
+export const roleModules: Record<Role, Module[]> = {
+  admin: modules.map(module => module.id),
+  staff: modules.map(module => module.id),
+  franchisee: ['orders', 'leads', 'supply'],
+}
+// Stored permissions are sparse; anything missing falls back to the role default.
+export function resolvePermissions(role: Role, stored: Partial<Record<string, unknown>> = {}): Permissions {
+  return Object.fromEntries(modules.map(({ id }) => {
+    if (role === 'admin') return [id, 'edit']
+    if (!roleModules[role].includes(id)) return [id, 'none']
+    const value = stored[id]
+    if (value === 'none' || value === 'view' || value === 'edit') return [id, value]
+    return [id, role === 'staff' && id === 'franchises' ? 'view' : 'edit']
+  })) as Permissions
+}
+export function can(permissions: Permissions | undefined, module: Module, level: 'view' | 'edit') {
+  const granted = permissions?.[module] || 'none'
+  return level === 'view' ? granted !== 'none' : granted === 'edit'
+}
 export type Center = { latitude: number; longitude: number }
 export const FRANCHISE_RADIUS_KM = 20
 export const franchiseStatuses = ['Active', 'Inactive']
@@ -93,6 +135,14 @@ export function demoRecords(): BusinessRecord[] {
     { kind: 'supply', franchiseId: 'demo-franchise-2', data: { name: 'South Harbour franchise', product: 'Mutton', quantity: 40, unit: 'kg', amount: 28000, paid: 28000, status: 'Dispatched', date: dateOffset(0) } },
   ]
   return [...rows, ...franchiseRows].map((row, index) => ({ franchiseId: null, ...row, id: `demo-${index + 1}`, createdAt: new Date().toISOString() }))
+}
+export function demoUsers(): AppUser[] {
+  return [
+    { id: 'demo-user-1', email: 'owner@example.com', name: 'Business owner', role: 'admin', permissions: {}, status: 'Active', lastSeenAt: new Date().toISOString() },
+    { id: 'demo-user-2', email: 'dispatch@example.com', name: 'Dispatch lead', role: 'staff', permissions: { sourcing: 'view', franchises: 'none' }, status: 'Active' },
+    { id: 'demo-user-3', email: 'north@example.com', name: 'North City owner', role: 'franchisee', franchiseId: 'demo-franchise-1', permissions: {}, status: 'Active' },
+    { id: 'demo-user-4', email: 'south@example.com', name: 'South Harbour owner', role: 'franchisee', franchiseId: 'demo-franchise-2', permissions: { supply: 'view' }, status: 'Disabled' },
+  ]
 }
 export function demoFranchises(): Franchise[] {
   return [
