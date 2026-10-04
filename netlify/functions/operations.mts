@@ -1,8 +1,10 @@
-import { getUser } from '@netlify/identity'
 import type { Config } from '@netlify/functions'
-import { eq, desc, and } from 'drizzle-orm'
+import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { records, settings } from '../../db/schema.js'
+import { franchises, records, settings } from '../../db/schema.js'
+import { franchiseView, resolveAccess, sameOrigin } from '../../db/access.js'
+import { distance, franchiseKinds, segments } from '../../src/lib/business.js'
+import type { Kind } from '../../src/lib/business.js'
 
 const statuses: Record<string, string[]> = {
   orders: ['Pending', 'Processing', 'Ready', 'Out for delivery', 'Delivered', 'Cancelled'],
@@ -10,11 +12,12 @@ const statuses: Record<string, string[]> = {
   sourcing: ['Planned', 'Ordered', 'Received'],
   inventory: ['Available', 'Low stock', 'On hold'],
   outlets: ['Active', 'Inactive'],
+  supply: ['Requested', 'Confirmed', 'Dispatched', 'Delivered', 'Cancelled'],
 }
 
 function validate(kind: string, data: Record<string, unknown>) {
   if (typeof data !== 'object' || Array.isArray(data)) return false
-  const textFields = ['name', 'status', 'product', 'unit', 'phone', 'note', 'date', 'expiry', 'outlet', 'batch']
+  const textFields = ['name', 'status', 'product', 'unit', 'phone', 'note', 'date', 'expiry', 'outlet', 'batch', 'segment', 'placeId']
   const numberFields = ['quantity', 'amount', 'paid', 'cost', 'temperature', 'latitude', 'longitude']
   if (Object.keys(data).some(key => !textFields.includes(key) && !numberFields.includes(key))) return false
   if (textFields.some(key => data[key] !== undefined && (typeof data[key] !== 'string' || String(data[key]).length > 1000))) return false
@@ -28,50 +31,107 @@ function validate(kind: string, data: Record<string, unknown>) {
   if (data.latitude !== undefined && (typeof data.latitude !== 'number' || !Number.isFinite(data.latitude) || Math.abs(data.latitude) > 90)) return false
   if (data.longitude !== undefined && (typeof data.longitude !== 'number' || !Number.isFinite(data.longitude) || Math.abs(data.longitude) > 180)) return false
   if (data.date && !/^\d{4}-\d{2}-\d{2}$/.test(String(data.date))) return false
-  if (['orders', 'sourcing', 'inventory'].includes(kind) && (!['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns'].includes(String(data.product)) || typeof data.quantity !== 'number' || (kind !== 'inventory' && data.quantity <= 0) || !['kg', 'trays', 'pieces'].includes(String(data.unit)))) return false
-  if (['orders', 'sourcing'].includes(kind) && (typeof data.amount !== 'number' || typeof data.paid !== 'number')) return false
+  if (['orders', 'sourcing', 'inventory', 'supply'].includes(kind) && (!['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns'].includes(String(data.product)) || typeof data.quantity !== 'number' || (kind !== 'inventory' && data.quantity <= 0) || !['kg', 'trays', 'pieces'].includes(String(data.unit)))) return false
+  if (['orders', 'sourcing', 'supply'].includes(kind) && (typeof data.amount !== 'number' || typeof data.paid !== 'number')) return false
   if (kind === 'orders' && !data.date) return false
   if ((data.latitude === undefined) !== (data.longitude === undefined)) return false
   if (data.phone && !/^\d{7,15}$/.test(String(data.phone))) return false
   if (kind === 'inventory' && (!data.batch || !/^\d{4}-\d{2}-\d{2}$/.test(String(data.expiry)) || (data.date && String(data.expiry) < String(data.date)))) return false
+  if (data.segment !== undefined && (kind !== 'leads' || !segments.includes(String(data.segment)))) return false
+  if (data.placeId !== undefined && (kind !== 'leads' || !/^[A-Za-z0-9_-]{1,300}$/.test(String(data.placeId)))) return false
   if (data.temperature !== undefined && (typeof data.temperature !== 'number' || !Number.isFinite(data.temperature))) return false
   return true
+}
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const networkKinds: string[] = ['orders', 'leads', 'supply']
+
+function outsideTerritory(data: Record<string, unknown>, franchise: { data: Record<string, unknown> }) {
+  const center = { latitude: Number(franchise.data.latitude), longitude: Number(franchise.data.longitude) }
+  if (typeof data.latitude !== 'number' || typeof data.longitude !== 'number') return 'Franchise leads need latitude and longitude so the territory can be checked.'
+  if (distance(data.latitude, data.longitude, center) > Number(franchise.data.radius)) return `This business is outside the franchise's ${franchise.data.radius} km territory.`
+  return ''
 }
 
 export default async (req: Request) => {
   const headers = { 'Cache-Control': 'no-store' }
   try {
-    const user = await getUser()
-    if (!user) return Response.json({ error: 'Sign in to access business records.' }, { status: 401, headers })
-    if (!user.roles?.some((role: string) => ['admin', 'staff'].includes(role))) return Response.json({ error: 'An administrator must assign you the staff or admin role in Netlify Identity.' }, { status: 403, headers })
+    const access = await resolveAccess()
+    if ('error' in access) return Response.json({ error: access.error }, { status: access.status, headers })
+    const own = access.scope === 'franchise' ? access.franchise : null
     if (req.method === 'GET') {
+      if (own) {
+        const rows = await db.select().from(records).where(eq(records.franchiseId, own.id)).orderBy(desc(records.createdAt))
+        const [configuration] = await db.select().from(settings).where(eq(settings.id, 'main'))
+        return Response.json({ records: rows, settings: { company: configuration?.data.company, currency: configuration?.data.currency }, franchise: franchiseView(own) }, { headers })
+      }
       const rows = await db.select().from(records).orderBy(desc(records.createdAt))
       const [configuration] = await db.select().from(settings).where(eq(settings.id, 'main'))
-      return Response.json({ records: rows, settings: configuration?.data || {} }, { headers })
+      const network = await db.select().from(franchises).orderBy(franchises.createdAt)
+      return Response.json({ records: rows, settings: configuration?.data || {}, franchises: network.map(franchiseView) }, { headers })
     }
     if (!['POST', 'PATCH'].includes(req.method)) return new Response('Method not allowed', { status: 405, headers })
-    if (req.headers.get('origin') && req.headers.get('origin') !== new URL(req.url).origin) return new Response('Forbidden', { status: 403, headers })
+    if (!sameOrigin(req)) return new Response('Forbidden', { status: 403, headers })
     const raw = await req.text()
     if (raw.length > 16000) return Response.json({ error: 'Record is too large.' }, { status: 413, headers })
     let body
     try { body = JSON.parse(raw) } catch { return Response.json({ error: 'Invalid request data.' }, { status: 400, headers }) }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'Invalid request data.' }, { status: 400, headers })
     if (body.kind === 'settings') {
-      if (!user.roles?.includes('admin')) return Response.json({ error: 'Only administrators can change business settings.' }, { status: 403 })
+      if (access.scope !== 'company' || !access.admin) return Response.json({ error: 'Only administrators can change business settings.' }, { status: 403, headers })
       const data = body.data
-      if (!data || typeof data.company !== 'string' || !data.company.trim() || data.company.length > 100 || !/^[A-Z]{3}$/.test(data.currency) || (data.whatsapp && !/^\d{7,15}$/.test(data.whatsapp)) || !Number.isFinite(Number(data.latitude)) || Math.abs(Number(data.latitude)) > 90 || !Number.isFinite(Number(data.longitude)) || Math.abs(Number(data.longitude)) > 180 || !Number.isFinite(Number(data.radius)) || Number(data.radius) < 20 || Number(data.radius) > 30) return Response.json({ error: 'Check company, currency, international WhatsApp number, coordinates, and 20–30 km radius.' }, { status: 400 })
+      if (!data || typeof data.company !== 'string' || !data.company.trim() || data.company.length > 100 || !/^[A-Z]{3}$/.test(data.currency) || (data.whatsapp && !/^\d{7,15}$/.test(data.whatsapp)) || !Number.isFinite(Number(data.latitude)) || Math.abs(Number(data.latitude)) > 90 || !Number.isFinite(Number(data.longitude)) || Math.abs(Number(data.longitude)) > 180 || !Number.isFinite(Number(data.radius)) || Number(data.radius) < 20 || Number(data.radius) > 30) return Response.json({ error: 'Check company, currency, international WhatsApp number, coordinates, and 20–30 km radius.' }, { status: 400, headers })
       const saved = { company: data.company, currency: data.currency, whatsapp: data.whatsapp || '', location: String(data.location || '').slice(0, 180), latitude: Number(data.latitude), longitude: Number(data.longitude), radius: Number(data.radius) }
       await db.insert(settings).values({ id: 'main', data: saved }).onConflictDoUpdate({ target: settings.id, set: { data: saved } })
       return Response.json({ ok: true }, { headers })
     }
+    if (own && !franchiseKinds.includes(body.kind as Kind)) return Response.json({ error: 'Franchise accounts can manage orders, leads and supply requests only.' }, { status: 403, headers })
     if (!body.data || !validate(body.kind, body.data)) return Response.json({ error: 'Check required fields, status, amounts, and coordinates.' }, { status: 400, headers })
+    const data: Record<string, unknown> = { ...body.data }
+    let existing: typeof records.$inferSelect | undefined
     if (req.method === 'PATCH') {
-      if (!/^[0-9a-f-]{36}$/i.test(body.id || '')) return Response.json({ error: 'Invalid record.' }, { status: 400 })
-      const [updated] = await db.update(records).set({ data: body.data }).where(and(eq(records.id, body.id), eq(records.kind, body.kind))).returning()
-      if (!updated) return Response.json({ error: 'Record not found.' }, { status: 404 })
+      if (!uuidPattern.test(body.id || '')) return Response.json({ error: 'Invalid record.' }, { status: 400, headers })
+      ;[existing] = await db.select().from(records).where(and(eq(records.id, body.id), eq(records.kind, body.kind)))
+      if (!existing || (own && existing.franchiseId !== own.id)) return Response.json({ error: 'Record not found.' }, { status: 404, headers })
+      if (existing.data.placeId) data.placeId = existing.data.placeId
+      else delete data.placeId
+    }
+    // Which franchise the record belongs to is decided by the server: a franchisee's own,
+    // or the one an administrator/staff member selected (company-direct when empty).
+    let franchise = own
+    if (!own) {
+      const requested = 'franchiseId' in body ? body.franchiseId : existing?.franchiseId
+      if (requested && !networkKinds.includes(body.kind)) return Response.json({ error: 'Only orders, leads and supply can belong to a franchise.' }, { status: 400, headers })
+      if (requested) {
+        if (typeof requested !== 'string' || !uuidPattern.test(requested)) return Response.json({ error: 'Choose a valid franchise.' }, { status: 400, headers })
+        ;[franchise] = await db.select().from(franchises).where(eq(franchises.id, requested))
+        if (!franchise) return Response.json({ error: 'Choose a valid franchise.' }, { status: 400, headers })
+      }
+    }
+    if (body.kind === 'supply' && !franchise) return Response.json({ error: 'Choose the franchise this supply is for.' }, { status: 400, headers })
+    if (body.kind === 'leads' && franchise) {
+      const problem = outsideTerritory(data, franchise)
+      if (problem) return Response.json({ error: problem }, { status: 400, headers })
+    }
+    if (body.kind === 'supply' && franchise) data.name = String(franchise.data.name)
+    if (body.kind === 'supply' && own) {
+      // Franchisees request supply; the company confirms price, dispatch and payments.
+      if (existing && existing.data.status !== 'Requested') return Response.json({ error: 'The company has already confirmed this supply. Contact them to change it.' }, { status: 409, headers })
+      if (existing && !['Requested', 'Cancelled'].includes(String(data.status))) return Response.json({ error: 'You can only cancel a supply request.' }, { status: 400, headers })
+      if (!existing) data.status = 'Requested'
+      data.amount = 0
+      data.paid = 0
+    }
+    if (body.kind === 'leads' && data.placeId && !existing) {
+      const [claimed] = await db.select({ id: records.id }).from(records).where(and(eq(records.kind, 'leads'), sql`${records.data}->>'placeId' = ${String(data.placeId)}`)).limit(1)
+      if (claimed) return Response.json({ error: 'This business is already a lead in the network.' }, { status: 409, headers })
+    }
+    const franchiseId = franchise?.id ?? null
+    if (existing) {
+      const [updated] = await db.update(records).set({ data, franchiseId }).where(eq(records.id, existing.id)).returning()
       return Response.json(updated, { headers })
     }
-    const [created] = await db.insert(records).values({ kind: body.kind, data: body.data }).returning()
+    const [created] = await db.insert(records).values({ kind: body.kind, data, franchiseId }).returning()
     return Response.json(created, { status: 201, headers })
   } catch {
     return Response.json({ error: 'The service is unavailable. Please try again. Your changes have not been saved.' }, { status: 503, headers })

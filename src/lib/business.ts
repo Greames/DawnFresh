@@ -1,4 +1,4 @@
-export type Kind = 'orders' | 'leads' | 'sourcing' | 'inventory' | 'outlets'
+export type Kind = 'orders' | 'leads' | 'sourcing' | 'inventory' | 'outlets' | 'supply'
 export type BusinessData = {
   name: string
   status: string
@@ -17,8 +17,21 @@ export type BusinessData = {
   longitude?: number
   outlet?: string
   batch?: string
+  segment?: string
+  placeId?: string
 }
-export type BusinessRecord = { id: string; kind: Kind; data: BusinessData; createdAt: string }
+export type BusinessRecord = { id: string; kind: Kind; data: BusinessData; createdAt: string; franchiseId?: string | null }
+export type Franchise = { id: string; name: string; email: string; phone?: string; location: string; latitude: number; longitude: number; radius: number; status: string; note?: string; createdAt?: string }
+export type FranchiseLogin = { exists: boolean; confirmedAt?: string; lastSignInAt?: string; invitedAt?: string }
+export type Center = { latitude: number; longitude: number }
+export const FRANCHISE_RADIUS_KM = 20
+export const franchiseStatuses = ['Active', 'Inactive']
+export const segments = ['Restaurant', 'Caterer', 'Hotel', 'Other']
+export const discoveryCategories = [
+  { id: 'restaurant', label: 'Restaurants', segment: 'Restaurant' },
+  { id: 'caterer', label: 'Caterers', segment: 'Caterer' },
+  { id: 'hotel', label: 'Hotels', segment: 'Hotel' },
+] as const
 export type Settings = { company: string; currency: string; whatsapp: string; location: string; latitude: number; longitude: number; radius: number }
 export const defaultSettings: Settings = { company: 'FreshRoute', currency: 'INR', whatsapp: '', location: '', latitude: 0, longitude: 0, radius: 25 }
 export const products = [
@@ -34,7 +47,9 @@ export const statusOptions: Record<Kind, string[]> = {
   sourcing: ['Planned', 'Ordered', 'Received'],
   inventory: ['Available', 'Low stock', 'On hold'],
   outlets: ['Active', 'Inactive'],
+  supply: ['Requested', 'Confirmed', 'Dispatched', 'Delivered', 'Cancelled'],
 }
+export const franchiseKinds: Kind[] = ['orders', 'leads', 'supply']
 export function dateOffset(days: number) {
   const date = new Date()
   date.setUTCDate(date.getUTCDate() + days)
@@ -64,9 +79,28 @@ export function demoRecords(): BusinessRecord[] {
     { kind: 'outlets', data: { name: 'Retail outlet', status: 'Active', note: 'Walk-in retail & customer pickup' } },
     { kind: 'outlets', data: { name: 'Mobile outlet', status: 'Active', note: 'Neighbourhood routes & direct retail' } },
   ]
-  return rows.map((row, index) => ({ ...row, id: `demo-${index + 1}`, createdAt: new Date().toISOString() }))
+  const franchiseRows: { kind: Kind; data: BusinessData; franchiseId: string }[] = [
+    { kind: 'leads', franchiseId: 'demo-franchise-1', data: { name: 'Lakeview Grand Hotel', segment: 'Hotel', status: 'Customer', latitude: 0.17, longitude: 0.12, amount: 90000, note: 'Breakfast eggs and banquet chicken' } },
+    { kind: 'leads', franchiseId: 'demo-franchise-1', data: { name: 'Northside Biryani House', segment: 'Restaurant', status: 'Qualified', latitude: 0.2, longitude: 0.07, amount: 38000, date: dateOffset(1) } },
+    { kind: 'leads', franchiseId: 'demo-franchise-1', data: { name: 'Royal Events Catering', segment: 'Caterer', status: 'New lead', latitude: 0.11, longitude: 0.16, amount: 55000 } },
+    { kind: 'orders', franchiseId: 'demo-franchise-1', data: { name: 'Lakeview Grand Hotel', product: 'Chicken', quantity: 60, unit: 'kg', amount: 16800, paid: 8000, status: 'Out for delivery', date: dateOffset(0) } },
+    { kind: 'orders', franchiseId: 'demo-franchise-1', data: { name: 'Lakeview Grand Hotel', product: 'Eggs', quantity: 20, unit: 'trays', amount: 4200, paid: 4200, status: 'Delivered', date: dateOffset(-2) } },
+    { kind: 'supply', franchiseId: 'demo-franchise-1', data: { name: 'North City franchise', product: 'Chicken', quantity: 120, unit: 'kg', amount: 26400, paid: 15000, status: 'Delivered', date: dateOffset(-1) } },
+    { kind: 'supply', franchiseId: 'demo-franchise-1', data: { name: 'North City franchise', product: 'Eggs', quantity: 40, unit: 'trays', amount: 0, paid: 0, status: 'Requested', date: dateOffset(1) } },
+    { kind: 'leads', franchiseId: 'demo-franchise-2', data: { name: 'Seabreeze Restaurant', segment: 'Restaurant', status: 'Contacted', latitude: -0.14, longitude: -0.06, amount: 42000 } },
+    { kind: 'leads', franchiseId: 'demo-franchise-2', data: { name: 'Feast Masters Caterers', segment: 'Caterer', status: 'Customer', latitude: -0.1, longitude: -0.12, amount: 70000 } },
+    { kind: 'orders', franchiseId: 'demo-franchise-2', data: { name: 'Feast Masters Caterers', product: 'Mutton', quantity: 25, unit: 'kg', amount: 19750, paid: 0, status: 'Ready', date: dateOffset(0) } },
+    { kind: 'supply', franchiseId: 'demo-franchise-2', data: { name: 'South Harbour franchise', product: 'Mutton', quantity: 40, unit: 'kg', amount: 28000, paid: 28000, status: 'Dispatched', date: dateOffset(0) } },
+  ]
+  return [...rows, ...franchiseRows].map((row, index) => ({ franchiseId: null, ...row, id: `demo-${index + 1}`, createdAt: new Date().toISOString() }))
 }
-export function distance(latitude: number, longitude: number, center: Settings) {
+export function demoFranchises(): Franchise[] {
+  return [
+    { id: 'demo-franchise-1', name: 'North City franchise', email: 'north@example.com', location: 'North City market', latitude: 0.2, longitude: 0.15, radius: FRANCHISE_RADIUS_KM, status: 'Active' },
+    { id: 'demo-franchise-2', name: 'South Harbour franchise', email: 'south@example.com', location: 'South Harbour', latitude: -0.2, longitude: -0.15, radius: FRANCHISE_RADIUS_KM, status: 'Active' },
+  ]
+}
+export function distance(latitude: number, longitude: number, center: Center) {
   const radians = Math.PI / 180
   const deltaLatitude = (latitude - center.latitude) * radians
   const deltaLongitude = (longitude - center.longitude) * radians
