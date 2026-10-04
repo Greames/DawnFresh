@@ -9,7 +9,6 @@
   "dependencies": {
     "@netlify/database": "^2.0.1",
     "@netlify/functions": "^6.0.2",
-    "@netlify/identity": "^2.0.0",
     "@tailwindcss/vite": "4.2.2",
     "@tanstack/react-router": "1.170.40",
     "@tanstack/react-start": "1.168.60",
