@@ -63,7 +63,7 @@ export const modules: { id: Module; label: string; short: string; detail: string
 export const roles: { id: Role; label: string; detail: string }[] = [
   { id: 'admin', label: 'Admin', detail: 'Full access, business settings, and users & access' },
   { id: 'staff', label: 'Company staff', detail: 'Company records, limited by the permissions below' },
-  { id: 'franchisee', label: 'Franchisee', detail: 'One franchise only: its orders, leads and stock requests' },
+  { id: 'franchisee', label: 'Franchisee', detail: 'One franchise only: customers, orders, supply, processing, stock and outlets' },
 ]
 export const accessLevels: { id: AccessLevel; label: string }[] = [{ id: 'none', label: 'No access' }, { id: 'view', label: 'View' }, { id: 'edit', label: 'Edit' }]
 export const userStatuses = ['Active', 'Disabled']
