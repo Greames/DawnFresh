@@ -177,7 +177,7 @@ export default async (req: Request) => {
       const paid = Number(data.paid || 0)
       const invoiceStatus = amount <= 0 ? 'Draft' : paid >= amount ? 'Paid' : paid > 0 ? 'Partially Paid' : 'Issued'
       const invoiceData = { name: String(data.name), status: invoiceStatus, amount, subtotal: Number(data.amount || 0), paid, balance: Math.max(0, amount - paid), invoiceNumber, orderId: saved.id, product: data.product, quantity: data.quantity, unit: data.unit, date: data.date, dueDate: data.date }
-      const existingInvoices = await db.select().from(records).where(and(eq(records.kind, 'invoices'), sql\`\${records.data}->>'orderId' = \${saved.id}\`))
+      const existingInvoices = await db.select().from(records).where(and(eq(records.kind, 'invoices'), sql`${records.data}->>'orderId' = ${saved.id}`))
       if (existingInvoices.length) await db.update(records).set({ data: invoiceData, franchiseId }).where(eq(records.id, existingInvoices[0].id))
       else await db.insert(records).values({ kind: 'invoices', franchiseId, data: invoiceData })
       const previousPaid = Number(previous?.paid || 0)
@@ -185,7 +185,7 @@ export default async (req: Request) => {
       const deliveryStatus = data.deliveryStatus || (data.status === 'Ready' ? 'Planned' : data.status === 'Out for delivery' ? 'Out for delivery' : data.status === 'Delivered' ? 'Delivered' : undefined)
       if (deliveryStatus) {
         const deliveryData = { name: String(data.name), status: String(deliveryStatus), orderId: saved.id, product: data.product, quantity: data.quantity, unit: data.unit, deliveryDate: data.deliveryDate || data.date, deliveryWindow: data.deliveryWindow, driver: data.driver, driverPhone: data.phone, vehicleNumber: data.vehicleNumber, outlet: data.outlet, route: data.note }
-        const existingDeliveries = await db.select().from(records).where(and(eq(records.kind, 'deliveries'), sql\`\${records.data}->>'orderId' = \${saved.id}\`))
+        const existingDeliveries = await db.select().from(records).where(and(eq(records.kind, 'deliveries'), sql`${records.data}->>'orderId' = ${saved.id}`))
         if (existingDeliveries.length) await db.update(records).set({ data: deliveryData, franchiseId }).where(eq(records.id, existingDeliveries[0].id))
         else await db.insert(records).values({ kind: 'deliveries', franchiseId, data: deliveryData })
       }
