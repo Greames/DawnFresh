@@ -369,7 +369,7 @@ export function Operations() {
     catch (cause) { setError((cause as Error).message); setDiscoveryState('idle') }
     finally { setBusy(false) }
   }
-  const kind: Kind = ['orders', 'leads', 'inventory', 'sourcing', 'outlets', 'supply'].includes(section) ? section as Kind : 'orders'
+  const kind: Kind = ['orders', 'leads', 'inventory', 'sourcing', 'outlets', 'supply', 'processing'].includes(section) ? section as Kind : 'orders'
   const tableRows = rows.filter(row => row.kind === kind).filter(row => section !== 'deliveries' || ['Ready', 'Out for delivery', 'Delivered'].includes(row.data.status)).filter(row => section !== 'overview' || ((row.data.date || row.createdAt.slice(0, 10)) >= startDate && (row.data.date || row.createdAt.slice(0, 10)) <= today)).filter(row => status === 'All statuses' || row.data.status === status).filter(row => Object.values(row.data).join(' ').toLowerCase().includes(search.toLowerCase()))
   const nearLeads = leads.filter(row => row.data.latitude !== undefined && row.data.longitude !== undefined && distance(row.data.latitude, row.data.longitude, territory) <= territory.radius)
   const supplyRows = rows.filter(row => row.kind === 'supply' && row.data.status !== 'Cancelled')
