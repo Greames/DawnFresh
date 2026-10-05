@@ -110,6 +110,7 @@ export default async (req: Request) => {
     }
     if (typeof body.kind !== 'string' || !Object.hasOwn(statuses, body.kind)) return Response.json({ error: 'Unknown record type.' }, { status: 400, headers })
     const requestedModule = kindModule(body.kind)
+    if (own && ['settlements', 'stock_movements'].includes(body.kind)) return Response.json({ error: 'Settlement and stock movement audit records are controlled by the company.' }, { status: 403, headers })
     if (own && !franchiseKinds.includes(body.kind as Kind)) return Response.json({ error: 'Franchise accounts can manage customers, orders, supply, processing, stock, outlets, deliveries, invoices and payments.' }, { status: 403, headers })
     if (!allowed(access, requestedModule, 'edit')) return Response.json({ error: 'You have view-only or no access to these records. Ask an administrator.' }, { status: 403, headers })
     if (!body.data || !validate(body.kind, body.data)) return Response.json({ error: 'Check required fields, status, amounts, and coordinates.' }, { status: 400, headers })
