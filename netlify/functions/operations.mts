@@ -7,6 +7,11 @@ import { distance, franchiseKinds, segments, validRadius } from '../../src/lib/b
 import type { Kind, Module } from '../../src/lib/business.js'
 
 const statuses: Record<string, string[]> = {
+  deliveries: ['Planned', 'Assigned', 'Picked up', 'Out for delivery', 'Delivered', 'Failed', 'Rescheduled', 'Cancelled'],
+  invoices: ['Draft', 'Issued', 'Partially Paid', 'Paid', 'Overdue', 'Cancelled'],
+  payments: ['Received', 'Reversed'],
+  settlements: ['Open', 'Partially Settled', 'Settled', 'Disputed'],
+  stock_movements: ['Planned', 'Posted', 'Cancelled'],
   processing: ['Planned', 'Processing', 'Quality Check', 'Completed', 'Rejected'],
   orders: ['Pending', 'Processing', 'Ready', 'Out for delivery', 'Delivered', 'Cancelled'],
   leads: ['New lead', 'Contacted', 'Qualified', 'Customer'],
@@ -18,8 +23,8 @@ const statuses: Record<string, string[]> = {
 
 function validate(kind: string, data: Record<string, unknown>) {
   if (typeof data !== 'object' || Array.isArray(data)) return false
-  const textFields = ['name', 'status', 'product', 'unit', 'phone', 'note', 'date', 'expiry', 'outlet', 'batch', 'segment', 'placeId', 'customerType', 'channel', 'outletType', 'vehicleNumber', 'driver', 'paymentMethod', 'paymentReference', 'sourceStock', 'processingBatch', 'invoiceNumber', 'deliveryDate', 'deliveryWindow', 'deliveryStatus', 'stockStage', 'qcStatus', 'qcRemarks', 'sourceProcessingBatch']
-  const numberFields = ['quantity', 'amount', 'paid', 'cost', 'temperature', 'latitude', 'longitude', 'inputQuantity', 'outputQuantity', 'wasteQuantity', 'yieldPct']
+  const textFields = ['name', 'status', 'product', 'unit', 'phone', 'note', 'date', 'expiry', 'outlet', 'batch', 'segment', 'placeId', 'customerType', 'channel', 'outletType', 'vehicleNumber', 'driver', 'paymentMethod', 'paymentReference', 'sourceStock', 'processingBatch', 'invoiceNumber', 'deliveryDate', 'deliveryWindow', 'deliveryStatus', 'stockStage', 'qcStatus', 'qcRemarks', 'sourceProcessingBatch', 'orderId', 'invoiceId', 'deliveryId', 'settlementId', 'reference', 'fromStage', 'toStage', 'movementType', 'collector', 'dueDate', 'issuedDate', 'paymentDate', 'driverPhone', 'vehicleType', 'route', 'outletId', 'customerId', 'franchiseName']
+  const numberFields = ['quantity', 'amount', 'paid', 'cost', 'temperature', 'latitude', 'longitude', 'inputQuantity', 'outputQuantity', 'wasteQuantity', 'yieldPct', 'balance', 'tax', 'subtotal', 'unitPrice', 'collectedAmount', 'settlementAmount', 'openingQuantity', 'closingQuantity']
   if (Object.keys(data).some(key => !textFields.includes(key) && !numberFields.includes(key))) return false
   if (textFields.some(key => data[key] !== undefined && (typeof data[key] !== 'string' || String(data[key]).length > 1000))) return false
   if (!Array.isArray(statuses[kind]) || typeof data.name !== 'string' || !data.name.trim() || data.name.length > 180) return false
@@ -33,8 +38,11 @@ function validate(kind: string, data: Record<string, unknown>) {
   if (data.longitude !== undefined && (typeof data.longitude !== 'number' || !Number.isFinite(data.longitude) || Math.abs(data.longitude) > 180)) return false
   if (data.date && !/^\d{4}-\d{2}-\d{2}$/.test(String(data.date))) return false
   for (const key of ['deliveryDate']) if (data[key] && !/^\d{4}-\d{2}-\d{2}$/.test(String(data[key]))) return false
-  if (['orders', 'sourcing', 'inventory', 'supply', 'processing'].includes(kind) && (!['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns'].includes(String(data.product)) || typeof data.quantity !== 'number' || (kind !== 'inventory' && data.quantity <= 0) || !['kg', 'trays', 'pieces'].includes(String(data.unit)))) return false
+  if (['orders', 'sourcing', 'inventory', 'supply', 'processing', 'stock_movements'].includes(kind) && (!['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns'].includes(String(data.product)) || (kind !== 'inventory' && kind !== 'processing' && kind !== 'stock_movements' && typeof data.quantity !== 'number') || (kind !== 'inventory' && kind !== 'processing' && kind !== 'stock_movements' && Number(data.quantity) <= 0) || (kind === 'stock_movements' && (typeof data.quantity !== 'number' || data.quantity <= 0)) || !['kg', 'trays', 'pieces'].includes(String(data.unit)))) return false
   if (['orders', 'sourcing', 'supply'].includes(kind) && (typeof data.amount !== 'number' || typeof data.paid !== 'number')) return false
+  if (['invoices', 'payments', 'settlements'].includes(kind) && (typeof data.amount !== 'number' && typeof data.collectedAmount !== 'number' && typeof data.settlementAmount !== 'number')) return false
+  if (kind === 'stock_movements' && (!data.fromStage || !data.toStage || !data.reference)) return false
+  if (kind === 'deliveries' && !data.deliveryDate && !data.date) return false
   if (kind === 'orders' && !data.date) return false
   if ((data.latitude === undefined) !== (data.longitude === undefined)) return false
   if (data.phone && !/^\d{7,15}$/.test(String(data.phone))) return false
@@ -54,7 +62,8 @@ function validate(kind: string, data: Record<string, unknown>) {
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const networkKinds: string[] = ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets']
+const networkKinds: string[] = ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets', 'deliveries', 'invoices', 'payments', 'settlements', 'stock_movements']
+const kindModule = (kind: string): Module => ['deliveries', 'invoices', 'payments'].includes(kind) ? 'orders' : ['settlements', 'stock_movements'].includes(kind) ? 'supply' : kind as Module
 
 function outsideTerritory(data: Record<string, unknown>, franchise: { data: Record<string, unknown> }) {
   const center = { latitude: Number(franchise.data.latitude), longitude: Number(franchise.data.longitude) }
@@ -99,9 +108,10 @@ export default async (req: Request) => {
       await db.insert(settings).values({ id: 'main', data: saved }).onConflictDoUpdate({ target: settings.id, set: { data: saved } })
       return Response.json({ ok: true }, { headers })
     }
-    if (own && !franchiseKinds.includes(body.kind as Kind)) return Response.json({ error: 'Franchise accounts can manage orders, leads, supply, processing, inventory and outlet records.' }, { status: 403, headers })
     if (typeof body.kind !== 'string' || !Object.hasOwn(statuses, body.kind)) return Response.json({ error: 'Unknown record type.' }, { status: 400, headers })
-    if (!allowed(access, body.kind as Module, 'edit')) return Response.json({ error: 'You have view-only or no access to these records. Ask an administrator.' }, { status: 403, headers })
+    const requestedModule = kindModule(body.kind)
+    if (own && !franchiseKinds.includes(body.kind as Kind)) return Response.json({ error: 'Franchise accounts can manage customers, orders, supply, processing, stock, outlets, deliveries, invoices and payments.' }, { status: 403, headers })
+    if (!allowed(access, requestedModule, 'edit')) return Response.json({ error: 'You have view-only or no access to these records. Ask an administrator.' }, { status: 403, headers })
     if (!body.data || !validate(body.kind, body.data)) return Response.json({ error: 'Check required fields, status, amounts, and coordinates.' }, { status: 400, headers })
     const data: Record<string, unknown> = { ...body.data }
     let existing: typeof records.$inferSelect | undefined
@@ -117,7 +127,7 @@ export default async (req: Request) => {
     let franchise = own
     if (!own) {
       const requested = 'franchiseId' in body ? body.franchiseId : existing?.franchiseId
-      if (requested && !networkKinds.includes(body.kind)) return Response.json({ error: 'Only orders, leads and supply can belong to a franchise.' }, { status: 400, headers })
+      if (requested && !networkKinds.includes(body.kind)) return Response.json({ error: 'This record type cannot be assigned to a franchise.' }, { status: 400, headers })
       if (requested) {
         if (typeof requested !== 'string' || !uuidPattern.test(requested)) return Response.json({ error: 'Choose a valid franchise.' }, { status: 400, headers })
         ;[franchise] = await db.select().from(franchises).where(eq(franchises.id, requested))
@@ -130,6 +140,7 @@ export default async (req: Request) => {
       if (problem) return Response.json({ error: problem }, { status: 400, headers })
     }
     if (body.kind === 'supply' && franchise) data.name = String(franchise.data.name)
+    if (franchise && ['deliveries', 'invoices', 'payments', 'settlements', 'stock_movements'].includes(body.kind)) data.franchiseName = String(franchise.data.name)
     if (body.kind === 'supply' && own) {
       // Franchisees request supply; the company confirms price, dispatch and payments.
       if (existing && existing.data.status !== 'Requested') return Response.json({ error: 'The company has already confirmed this supply. Contact them to change it.' }, { status: 409, headers })
@@ -143,11 +154,21 @@ export default async (req: Request) => {
       if (claimed) return Response.json({ error: 'This business is already a lead in the network.' }, { status: 409, headers })
     }
     const franchiseId = franchise?.id ?? null
+    if (body.kind === 'payments' && existing && Number(data.amount || data.collectedAmount || 0) < Number(existing.data.amount || existing.data.collectedAmount || 0)) return Response.json({ error: 'Payment amounts cannot be reduced. Create a reversal record for a correction.' }, { status: 409, headers })
     if (existing) {
       const [updated] = await db.update(records).set({ data, franchiseId }).where(eq(records.id, existing.id)).returning()
       return Response.json(updated, { headers })
     }
     const [created] = await db.insert(records).values({ kind: body.kind, data, franchiseId }).returning()
+    if (body.kind === 'processing' && data.status === 'Completed' && Number(data.outputQuantity || 0) > 0) {
+      await db.insert(records).values({ kind: 'stock_movements', franchiseId, data: { name: String(data.product) + ' processing output', status: 'Posted', product: data.product, quantity: Number(data.outputQuantity), unit: data.unit, fromStage: 'Raw / incoming', toStage: 'Finished stock', movementType: 'Processing output', reference: created.id, date: data.date || new Date().toISOString().slice(0, 10), processingBatch: data.processingBatch, sourceProcessingBatch: data.processingBatch } })
+    }
+    if (body.kind === 'orders') {
+      const invoiceNumber = String(data.invoiceNumber || 'INV-' + new Date().getFullYear() + '-' + created.id.slice(0, 8).toUpperCase())
+      await db.insert(records).values({ kind: 'invoices', franchiseId, data: { name: String(data.name), status: Number(data.paid || 0) >= Number(data.amount || 0) && Number(data.amount || 0) > 0 ? 'Paid' : 'Issued', amount: Number(data.amount || 0), subtotal: Number(data.amount || 0), paid: Number(data.paid || 0), balance: Math.max(0, Number(data.amount || 0) - Number(data.paid || 0)), invoiceNumber, orderId: created.id, product: data.product, quantity: data.quantity, unit: data.unit, date: data.date, dueDate: data.date } })
+      if (Number(data.paid || 0) > 0) await db.insert(records).values({ kind: 'payments', franchiseId, data: { name: String(data.name), status: 'Received', amount: Number(data.paid), paymentMethod: data.paymentMethod || 'Unspecified', paymentReference: data.paymentReference, orderId: created.id, invoiceNumber, paymentDate: data.date || new Date().toISOString().slice(0, 10) } })
+      if (['Ready', 'Out for delivery', 'Delivered'].includes(String(data.status))) await db.insert(records).values({ kind: 'deliveries', franchiseId, data: { name: String(data.name), status: data.status === 'Ready' ? 'Planned' : data.status === 'Out for delivery' ? 'Out for delivery' : 'Delivered', orderId: created.id, product: data.product, quantity: data.quantity, unit: data.unit, deliveryDate: data.deliveryDate || data.date, deliveryWindow: data.deliveryWindow, driver: data.driver, driverPhone: data.phone, vehicleNumber: data.vehicleNumber, outlet: data.outlet, route: data.note } })
+    }
     return Response.json(created, { status: 201, headers })
   } catch {
     return Response.json({ error: 'The service is unavailable. Please try again. Your changes have not been saved.' }, { status: 503, headers })
