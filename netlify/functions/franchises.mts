@@ -4,6 +4,8 @@ import { db } from '../../db/index.js'
 import { appUsers, franchises } from '../../db/schema.js'
 import { allowed, franchiseView, resolveAccess, sameOrigin } from '../../db/access.js'
 import { FRANCHISE_RADIUS_KM, franchiseStatuses, validRadius } from '../../src/lib/business.js'
+import { createPasswordToken } from '../../db/auth.js'
+import { emailEnabled, sendPasswordLink } from '../../db/email.js'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -54,8 +56,24 @@ export default async (req: Request) => {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return Response.json({ error: 'Enter a valid contact email for the franchise.' }, { status: 400, headers })
       const [taken] = await db.select({ id: franchises.id }).from(franchises).where(eq(franchises.email, email))
       if (taken) return Response.json({ error: 'Another franchise already uses this contact email.' }, { status: 409, headers })
+      const [existingUser] = await db.select({ id: appUsers.id }).from(appUsers).where(eq(appUsers.email, email))
+      if (existingUser) return Response.json({ error: 'This email is already registered as a user. Use a different franchisee email.' }, { status: 409, headers })
       const [created] = await db.insert(franchises).values({ email, data }).returning()
-      return Response.json(franchiseView(created), { status: 201, headers })
+      const [account] = await db.insert(appUsers).values({
+        email,
+        name: data.name,
+        role: 'franchisee',
+        franchiseId: created.id,
+        permissions: { orders: 'edit', leads: 'edit', supply: 'edit', inventory: 'view', sourcing: 'none', outlets: 'none', franchises: 'none' },
+        status: 'Active',
+        passwordHash: null,
+      }).returning({ id: appUsers.id })
+      let invitationSent = false
+      if (emailEnabled()) {
+        const token = await createPasswordToken(account.id, 'invite', 24)
+        invitationSent = await sendPasswordLink(req, email, data.name, token, 'invite', 24)
+      }
+      return Response.json({ ...franchiseView(created), invitationSent }, { status: 201, headers })
     }
     if (!uuidPattern.test(body.id || '')) return Response.json({ error: 'Invalid franchise.' }, { status: 400, headers })
     const [updated] = await db.update(franchises).set({ data }).where(eq(franchises.id, body.id)).returning()
