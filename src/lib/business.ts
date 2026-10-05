@@ -1,4 +1,4 @@
-export type Kind = 'orders' | 'leads' | 'sourcing' | 'inventory' | 'outlets' | 'supply'
+export type Kind = 'orders' | 'leads' | 'sourcing' | 'inventory' | 'outlets' | 'supply' | 'processing'
 export type BusinessData = {
   name: string
   status: string
@@ -19,11 +19,24 @@ export type BusinessData = {
   batch?: string
   segment?: string
   placeId?: string
+  customerType?: string
+  channel?: string
+  outletType?: string
+  vehicleNumber?: string
+  driver?: string
+  paymentMethod?: string
+  paymentReference?: string
+  inputQuantity?: number
+  outputQuantity?: number
+  wasteQuantity?: number
+  yieldPct?: number
+  sourceStock?: string
+  processingBatch?: string
 }
 export type BusinessRecord = { id: string; kind: Kind; data: BusinessData; createdAt: string; franchiseId?: string | null }
 export type Franchise = { id: string; name: string; email: string; phone?: string; location: string; latitude: number; longitude: number; radius: number; status: string; note?: string; createdAt?: string }
 export type FranchiseLogins = { users: number; active: number; lastSignInAt?: string }
-export type Module = 'orders' | 'leads' | 'inventory' | 'sourcing' | 'outlets' | 'supply' | 'franchises'
+export type Module = 'orders' | 'leads' | 'inventory' | 'sourcing' | 'outlets' | 'supply' | 'processing' | 'franchises'
 export type AccessLevel = 'none' | 'view' | 'edit'
 export type Role = 'admin' | 'staff' | 'franchisee'
 export type Permissions = Record<Module, AccessLevel>
@@ -36,6 +49,7 @@ export const modules: { id: Module; label: string; short: string; detail: string
   { id: 'inventory', short: 'Inventory', label: 'Inventory', detail: 'Stock lots, batches and expiry' },
   { id: 'sourcing', short: 'Sourcing', label: 'Sourcing', detail: 'Farmer and supplier purchases' },
   { id: 'outlets', short: 'Outlets', label: 'Outlets', detail: 'Processing unit, retail and mobile outlets' },
+  { id: 'processing', short: 'Processing', label: 'Processing & QC', detail: 'Raw stock to finished stock, yield, waste and quality checks' },
   { id: 'franchises', short: 'Network', label: 'Franchise network', detail: 'Franchise locations and results' },
 ]
 export const roles: { id: Role; label: string; detail: string }[] = [
@@ -48,7 +62,7 @@ export const userStatuses = ['Active', 'Disabled']
 export const roleModules: Record<Role, Module[]> = {
   admin: modules.map(module => module.id),
   staff: modules.map(module => module.id),
-  franchisee: ['orders', 'leads', 'supply'],
+  franchisee: ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets'],
 }
 // Stored permissions are sparse; anything missing falls back to the role default.
 export function resolvePermissions(role: Role, stored: Partial<Record<string, unknown>> = {}): Permissions {
@@ -90,6 +104,7 @@ export const products = [
   { name: 'Prawns', subtitle: 'Sorted to your specification', emoji: '🦐', color: '#faece4', description: 'Size-graded prawns with whole, peeled and cleaned options.' },
 ]
 export const statusOptions: Record<Kind, string[]> = {
+  processing: ['Planned', 'Processing', 'Quality Check', 'Completed', 'Rejected'],
   orders: ['Pending', 'Processing', 'Ready', 'Out for delivery', 'Delivered', 'Cancelled'],
   leads: ['New lead', 'Contacted', 'Qualified', 'Customer'],
   sourcing: ['Planned', 'Ordered', 'Received'],
@@ -97,7 +112,7 @@ export const statusOptions: Record<Kind, string[]> = {
   outlets: ['Active', 'Inactive'],
   supply: ['Requested', 'Confirmed', 'Dispatched', 'Delivered', 'Cancelled'],
 }
-export const franchiseKinds: Kind[] = ['orders', 'leads', 'supply']
+export const franchiseKinds: Kind[] = ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets']
 export function dateOffset(days: number) {
   const date = new Date()
   date.setUTCDate(date.getUTCDate() + days)
