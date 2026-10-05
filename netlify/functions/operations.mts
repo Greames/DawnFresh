@@ -7,6 +7,7 @@ import { distance, franchiseKinds, segments, validRadius } from '../../src/lib/b
 import type { Kind, Module } from '../../src/lib/business.js'
 
 const statuses: Record<string, string[]> = {
+  processing: ['Planned', 'Processing', 'Quality Check', 'Completed', 'Rejected'],
   orders: ['Pending', 'Processing', 'Ready', 'Out for delivery', 'Delivered', 'Cancelled'],
   leads: ['New lead', 'Contacted', 'Qualified', 'Customer'],
   sourcing: ['Planned', 'Ordered', 'Received'],
@@ -17,8 +18,8 @@ const statuses: Record<string, string[]> = {
 
 function validate(kind: string, data: Record<string, unknown>) {
   if (typeof data !== 'object' || Array.isArray(data)) return false
-  const textFields = ['name', 'status', 'product', 'unit', 'phone', 'note', 'date', 'expiry', 'outlet', 'batch', 'segment', 'placeId']
-  const numberFields = ['quantity', 'amount', 'paid', 'cost', 'temperature', 'latitude', 'longitude']
+  const textFields = ['name', 'status', 'product', 'unit', 'phone', 'note', 'date', 'expiry', 'outlet', 'batch', 'segment', 'placeId', 'customerType', 'channel', 'outletType', 'vehicleNumber', 'driver', 'paymentMethod', 'paymentReference', 'sourceStock', 'processingBatch']
+  const numberFields = ['quantity', 'amount', 'paid', 'cost', 'temperature', 'latitude', 'longitude', 'inputQuantity', 'outputQuantity', 'wasteQuantity', 'yieldPct']
   if (Object.keys(data).some(key => !textFields.includes(key) && !numberFields.includes(key))) return false
   if (textFields.some(key => data[key] !== undefined && (typeof data[key] !== 'string' || String(data[key]).length > 1000))) return false
   if (!Array.isArray(statuses[kind]) || typeof data.name !== 'string' || !data.name.trim() || data.name.length > 180) return false
@@ -31,7 +32,7 @@ function validate(kind: string, data: Record<string, unknown>) {
   if (data.latitude !== undefined && (typeof data.latitude !== 'number' || !Number.isFinite(data.latitude) || Math.abs(data.latitude) > 90)) return false
   if (data.longitude !== undefined && (typeof data.longitude !== 'number' || !Number.isFinite(data.longitude) || Math.abs(data.longitude) > 180)) return false
   if (data.date && !/^\d{4}-\d{2}-\d{2}$/.test(String(data.date))) return false
-  if (['orders', 'sourcing', 'inventory', 'supply'].includes(kind) && (!['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns'].includes(String(data.product)) || typeof data.quantity !== 'number' || (kind !== 'inventory' && data.quantity <= 0) || !['kg', 'trays', 'pieces'].includes(String(data.unit)))) return false
+  if (['orders', 'sourcing', 'inventory', 'supply', 'processing'].includes(kind) && (!['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns'].includes(String(data.product)) || typeof data.quantity !== 'number' || (kind !== 'inventory' && data.quantity <= 0) || !['kg', 'trays', 'pieces'].includes(String(data.unit)))) return false
   if (['orders', 'sourcing', 'supply'].includes(kind) && (typeof data.amount !== 'number' || typeof data.paid !== 'number')) return false
   if (kind === 'orders' && !data.date) return false
   if ((data.latitude === undefined) !== (data.longitude === undefined)) return false
@@ -40,11 +41,18 @@ function validate(kind: string, data: Record<string, unknown>) {
   if (data.segment !== undefined && (kind !== 'leads' || !segments.includes(String(data.segment)))) return false
   if (data.placeId !== undefined && (kind !== 'leads' || !/^[A-Za-z0-9_-]{1,300}$/.test(String(data.placeId)))) return false
   if (data.temperature !== undefined && (typeof data.temperature !== 'number' || !Number.isFinite(data.temperature))) return false
+  if (kind === 'processing') {
+    if (typeof data.inputQuantity !== 'number' || data.inputQuantity <= 0 || typeof data.outputQuantity !== 'number' || data.outputQuantity < 0 || typeof data.wasteQuantity !== 'number' || data.wasteQuantity < 0) return false
+    if (data.outputQuantity + data.wasteQuantity > data.inputQuantity + 0.000001) return false
+    const calculatedYield = data.inputQuantity ? data.outputQuantity / data.inputQuantity * 100 : 0
+    if (data.yieldPct !== undefined && (typeof data.yieldPct !== 'number' || data.yieldPct < 0 || data.yieldPct > 100)) return false
+    data.yieldPct = Number(calculatedYield.toFixed(2))
+  }
   return true
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const networkKinds: string[] = ['orders', 'leads', 'supply']
+const networkKinds: string[] = ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets']
 
 function outsideTerritory(data: Record<string, unknown>, franchise: { data: Record<string, unknown> }) {
   const center = { latitude: Number(franchise.data.latitude), longitude: Number(franchise.data.longitude) }
@@ -89,7 +97,7 @@ export default async (req: Request) => {
       await db.insert(settings).values({ id: 'main', data: saved }).onConflictDoUpdate({ target: settings.id, set: { data: saved } })
       return Response.json({ ok: true }, { headers })
     }
-    if (own && !franchiseKinds.includes(body.kind as Kind)) return Response.json({ error: 'Franchise accounts can manage orders, leads and supply requests only.' }, { status: 403, headers })
+    if (own && !franchiseKinds.includes(body.kind as Kind)) return Response.json({ error: 'Franchise accounts can manage orders, leads, supply, processing, inventory and outlet records.' }, { status: 403, headers })
     if (typeof body.kind !== 'string' || !Object.hasOwn(statuses, body.kind)) return Response.json({ error: 'Unknown record type.' }, { status: 400, headers })
     if (!allowed(access, body.kind as Module, 'edit')) return Response.json({ error: 'You have view-only or no access to these records. Ask an administrator.' }, { status: 403, headers })
     if (!body.data || !validate(body.kind, body.data)) return Response.json({ error: 'Check required fields, status, amounts, and coordinates.' }, { status: 400, headers })
