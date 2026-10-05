@@ -164,8 +164,11 @@ export default async (req: Request) => {
       ;[saved] = await db.insert(records).values({ kind: body.kind, data, franchiseId }).returning()
     }
 
-    if (body.kind === 'processing' && data.status === 'Completed' && previous?.status !== 'Completed' && Number(data.outputQuantity || 0) > 0) {
-      await db.insert(records).values({ kind: 'stock_movements', franchiseId, data: { name: String(data.product) + ' processing output', status: 'Posted', product: data.product, quantity: Number(data.outputQuantity), unit: data.unit, fromStage: 'Raw / incoming', toStage: 'Finished stock', movementType: 'Processing output', reference: saved.id, date: data.date || new Date().toISOString().slice(0, 10), processingBatch: data.processingBatch, sourceProcessingBatch: data.processingBatch } })
+    if (body.kind === 'processing' && data.status === 'Completed' && previous?.status !== 'Completed') {
+      const movementDate = data.date || new Date().toISOString().slice(0, 10)
+      if (Number(data.inputQuantity || 0) > 0) await db.insert(records).values({ kind: 'stock_movements', franchiseId, data: { name: String(data.product) + ' processing input', status: 'Posted', product: data.product, quantity: Number(data.inputQuantity), unit: data.unit, fromStage: 'Raw / incoming', toStage: 'Processing unit', movementType: 'Processing input', reference: saved.id, date: movementDate, processingBatch: data.processingBatch, sourceProcessingBatch: data.sourceStock } })
+      if (Number(data.outputQuantity || 0) > 0) await db.insert(records).values({ kind: 'stock_movements', franchiseId, data: { name: String(data.product) + ' processing output', status: 'Posted', product: data.product, quantity: Number(data.outputQuantity), unit: data.unit, fromStage: 'Processing unit', toStage: 'Finished stock', movementType: 'Processing output', reference: saved.id, date: movementDate, processingBatch: data.processingBatch, sourceProcessingBatch: data.processingBatch } })
+      if (Number(data.wasteQuantity || 0) > 0) await db.insert(records).values({ kind: 'stock_movements', franchiseId, data: { name: String(data.product) + ' processing waste', status: 'Posted', product: data.product, quantity: Number(data.wasteQuantity), unit: data.unit, fromStage: 'Processing unit', toStage: 'Waste / by-product', movementType: 'Processing waste', reference: saved.id, date: movementDate, processingBatch: data.processingBatch } })
     }
 
     if (body.kind === 'orders') {
