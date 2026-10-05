@@ -205,6 +205,15 @@ export function Operations() {
   const pending = orders.filter(row => row.data.status !== 'Delivered')
   const openLeads = leads.filter(row => row.data.status !== 'Customer')
   const lowStock = lots.filter(row => row.data.status === 'Low stock' || (row.data.expiry && row.data.expiry <= today))
+  const deliveryRows = rows.filter(row => row.kind === 'deliveries')
+  const invoiceRows = rows.filter(row => row.kind === 'invoices')
+  const paymentRows = rows.filter(row => row.kind === 'payments')
+  const settlementRows = rows.filter(row => row.kind === 'settlements')
+  const movementRows = rows.filter(row => row.kind === 'stock_movements')
+  const deliveryToday = deliveryRows.filter(row => (row.data.deliveryDate || row.data.date) === today)
+  const deliveryOpen = deliveryRows.filter(row => !['Delivered', 'Cancelled', 'Failed'].includes(row.data.status))
+  const invoiceDue = invoiceRows.reduce((sum, row) => sum + Math.max(0, Number(row.data.balance || ((row.data.amount || 0) - (row.data.paid || 0)))), 0)
+  const collected = paymentRows.filter(row => row.data.status === 'Received').reduce((sum, row) => sum + Number(row.data.amount || row.data.collectedAmount || 0), 0)
   const title = section === 'overview' ? (franchiseMode ? 'My franchise' : 'Overview') : section === 'settings' ? 'Business settings' : section === 'users' ? 'Users & access' : navigation.find(item => item.id === section)?.label || 'Workspace'
   const subtitles: Record<Section, string> = {
     overview: 'A fresh perspective on your business. Everything in one place.', orders: 'From a first order to a repeat customer. Keep every sale moving.', leads: 'Build relationships. Follow up thoughtfully. Grow locally.', sourcing: 'Your farmer-to-kitchen supply chain starts here.', inventory: 'Know your batches, availability and freshness at every outlet.', deliveries: 'Plan routes, assign drivers and close every delivery.', invoices: 'Issue invoices, track balances and follow every due amount.', payments: 'Record collections and keep every customer payment traceable.', settlements: 'Reconcile franchise collections and company settlement balances.', stock_movements: 'Audit every stock movement from raw input to customer.', outlets: 'One business. Connected wholesale, retail and mobile operations.', territory: 'Find your next customers, one neighbourhood at a time.', supply: franchiseMode ? 'Request stock from the company and keep track of what you owe.' : 'Supply every franchise. Price, dispatch and collect payments.', processing: 'Convert incoming raw stock into saleable finished stock. Record yield, waste and quality checks.', franchises: 'Every franchise location and result in one place.', users: 'Decide who can sign in and what each person can view or edit.', settings: 'Make this workspace yours. Set up your business and territory.', playbook: 'Build a repeatable business, not just a busy business.',
