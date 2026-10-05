@@ -400,15 +400,6 @@ export function Operations() {
   const nearLeads = leads.filter(row => row.data.latitude !== undefined && row.data.longitude !== undefined && distance(row.data.latitude, row.data.longitude, territory) <= territory.radius)
   const supplyRows = rows.filter(row => row.kind === 'supply' && row.data.status !== 'Cancelled')
   const supplyDue = supplyRows.reduce((sum, row) => sum + Math.max(0, (row.data.amount || 0) - (row.data.paid || 0)), 0)
-  const deliveryRows = rows.filter(row => row.kind === 'deliveries')
-  const invoiceRows = rows.filter(row => row.kind === 'invoices')
-  const paymentRows = rows.filter(row => row.kind === 'payments')
-  const settlementRows = rows.filter(row => row.kind === 'settlements')
-  const movementRows = rows.filter(row => row.kind === 'stock_movements')
-  const deliveryToday = deliveryRows.filter(row => (row.data.deliveryDate || row.data.date) === today)
-  const deliveryOpen = deliveryRows.filter(row => !['Delivered', 'Cancelled', 'Failed'].includes(row.data.status))
-  const invoiceDue = invoiceRows.reduce((sum, row) => sum + Math.max(0, Number(row.data.balance || ((row.data.amount || 0) - (row.data.paid || 0)))), 0)
-  const collected = paymentRows.filter(row => row.data.status === 'Received').reduce((sum, row) => sum + Number(row.data.amount || row.data.collectedAmount || 0), 0)
 
   function renderTable(compact = false) {
     const displayed = compact ? tableRows.slice(0, 5) : tableRows
