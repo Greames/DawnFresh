@@ -1,4 +1,4 @@
-export type Kind = 'orders' | 'leads' | 'sourcing' | 'inventory' | 'outlets' | 'supply' | 'processing'
+export type Kind = 'orders' | 'leads' | 'sourcing' | 'inventory' | 'outlets' | 'supply' | 'processing' | 'deliveries' | 'invoices' | 'payments' | 'settlements' | 'stock_movements'
 export type BusinessData = {
   name: string
   status: string
@@ -40,6 +40,32 @@ export type BusinessData = {
   qcStatus?: string
   qcRemarks?: string
   sourceProcessingBatch?: string
+  orderId?: string
+  invoiceId?: string
+  deliveryId?: string
+  settlementId?: string
+  reference?: string
+  fromStage?: string
+  toStage?: string
+  movementType?: string
+  collector?: string
+  dueDate?: string
+  issuedDate?: string
+  paymentDate?: string
+  driverPhone?: string
+  vehicleType?: string
+  route?: string
+  outletId?: string
+  customerId?: string
+  franchiseName?: string
+  balance?: number
+  tax?: number
+  subtotal?: number
+  unitPrice?: number
+  collectedAmount?: number
+  settlementAmount?: number
+  openingQuantity?: number
+  closingQuantity?: number
 }
 export type BusinessRecord = { id: string; kind: Kind; data: BusinessData; createdAt: string; franchiseId?: string | null }
 export type Franchise = { id: string; name: string; email: string; phone?: string; location: string; latitude: number; longitude: number; radius: number; status: string; note?: string; createdAt?: string }
@@ -112,6 +138,11 @@ export const products = [
   { name: 'Prawns', subtitle: 'Sorted to your specification', emoji: '🦐', color: '#faece4', description: 'Size-graded prawns with whole, peeled and cleaned options.' },
 ]
 export const statusOptions: Record<Kind, string[]> = {
+  deliveries: ['Planned', 'Assigned', 'Picked up', 'Out for delivery', 'Delivered', 'Failed', 'Rescheduled', 'Cancelled'],
+  invoices: ['Draft', 'Issued', 'Partially Paid', 'Paid', 'Overdue', 'Cancelled'],
+  payments: ['Received', 'Reversed'],
+  settlements: ['Open', 'Partially Settled', 'Settled', 'Disputed'],
+  stock_movements: ['Planned', 'Posted', 'Cancelled'],
   processing: ['Planned', 'Processing', 'Quality Check', 'Completed', 'Rejected'],
   orders: ['Pending', 'Processing', 'Ready', 'Out for delivery', 'Delivered', 'Cancelled'],
   leads: ['New lead', 'Contacted', 'Qualified', 'Customer'],
@@ -120,7 +151,7 @@ export const statusOptions: Record<Kind, string[]> = {
   outlets: ['Active', 'Inactive'],
   supply: ['Requested', 'Confirmed', 'Dispatched', 'Delivered', 'Cancelled'],
 }
-export const franchiseKinds: Kind[] = ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets']
+export const franchiseKinds: Kind[] = ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets', 'deliveries', 'invoices', 'payments', 'settlements', 'stock_movements']
 export function dateOffset(days: number) {
   const date = new Date()
   date.setUTCDate(date.getUTCDate() + days)
