@@ -155,21 +155,42 @@ export default async (req: Request) => {
     }
     const franchiseId = franchise?.id ?? null
     if (body.kind === 'payments' && existing && Number(data.amount || data.collectedAmount || 0) < Number(existing.data.amount || existing.data.collectedAmount || 0)) return Response.json({ error: 'Payment amounts cannot be reduced. Create a reversal record for a correction.' }, { status: 409, headers })
+    const previous = existing?.data
+    if (body.kind === 'payments' && existing && Number(data.amount || data.collectedAmount || 0) < Number(existing.data.amount || existing.data.collectedAmount || 0)) return Response.json({ error: 'Payment amounts cannot be reduced. Create a reversal record for a correction.' }, { status: 409, headers })
+    let saved: typeof records.$inferSelect
     if (existing) {
-      const [updated] = await db.update(records).set({ data, franchiseId }).where(eq(records.id, existing.id)).returning()
-      return Response.json(updated, { headers })
+      ;[saved] = await db.update(records).set({ data, franchiseId }).where(eq(records.id, existing.id)).returning()
+    } else {
+      ;[saved] = await db.insert(records).values({ kind: body.kind, data, franchiseId }).returning()
     }
-    const [created] = await db.insert(records).values({ kind: body.kind, data, franchiseId }).returning()
-    if (body.kind === 'processing' && data.status === 'Completed' && Number(data.outputQuantity || 0) > 0) {
-      await db.insert(records).values({ kind: 'stock_movements', franchiseId, data: { name: String(data.product) + ' processing output', status: 'Posted', product: data.product, quantity: Number(data.outputQuantity), unit: data.unit, fromStage: 'Raw / incoming', toStage: 'Finished stock', movementType: 'Processing output', reference: created.id, date: data.date || new Date().toISOString().slice(0, 10), processingBatch: data.processingBatch, sourceProcessingBatch: data.processingBatch } })
+
+    if (body.kind === 'processing' && data.status === 'Completed' && previous?.status !== 'Completed' && Number(data.outputQuantity || 0) > 0) {
+      await db.insert(records).values({ kind: 'stock_movements', franchiseId, data: { name: String(data.product) + ' processing output', status: 'Posted', product: data.product, quantity: Number(data.outputQuantity), unit: data.unit, fromStage: 'Raw / incoming', toStage: 'Finished stock', movementType: 'Processing output', reference: saved.id, date: data.date || new Date().toISOString().slice(0, 10), processingBatch: data.processingBatch, sourceProcessingBatch: data.processingBatch } })
     }
+
     if (body.kind === 'orders') {
-      const invoiceNumber = String(data.invoiceNumber || 'INV-' + new Date().getFullYear() + '-' + created.id.slice(0, 8).toUpperCase())
-      await db.insert(records).values({ kind: 'invoices', franchiseId, data: { name: String(data.name), status: Number(data.paid || 0) >= Number(data.amount || 0) && Number(data.amount || 0) > 0 ? 'Paid' : 'Issued', amount: Number(data.amount || 0), subtotal: Number(data.amount || 0), paid: Number(data.paid || 0), balance: Math.max(0, Number(data.amount || 0) - Number(data.paid || 0)), invoiceNumber, orderId: created.id, product: data.product, quantity: data.quantity, unit: data.unit, date: data.date, dueDate: data.date } })
-      if (Number(data.paid || 0) > 0) await db.insert(records).values({ kind: 'payments', franchiseId, data: { name: String(data.name), status: 'Received', amount: Number(data.paid), paymentMethod: data.paymentMethod || 'Unspecified', paymentReference: data.paymentReference, orderId: created.id, invoiceNumber, paymentDate: data.date || new Date().toISOString().slice(0, 10) } })
-      if (['Ready', 'Out for delivery', 'Delivered'].includes(String(data.status))) await db.insert(records).values({ kind: 'deliveries', franchiseId, data: { name: String(data.name), status: data.status === 'Ready' ? 'Planned' : data.status === 'Out for delivery' ? 'Out for delivery' : 'Delivered', orderId: created.id, product: data.product, quantity: data.quantity, unit: data.unit, deliveryDate: data.deliveryDate || data.date, deliveryWindow: data.deliveryWindow, driver: data.driver, driverPhone: data.phone, vehicleNumber: data.vehicleNumber, outlet: data.outlet, route: data.note } })
+      const invoiceNumber = String(data.invoiceNumber || previous?.invoiceNumber || 'INV-' + new Date().getFullYear() + '-' + saved.id.slice(0, 8).toUpperCase())
+      const amount = Number(data.amount || 0)
+      const paid = Number(data.paid || 0)
+      const invoiceStatus = amount <= 0 ? 'Draft' : paid >= amount ? 'Paid' : paid > 0 ? 'Partially Paid' : 'Issued'
+      const invoiceData = { name: String(data.name), status: invoiceStatus, amount, subtotal: Number(data.amount || 0), paid, balance: Math.max(0, amount - paid), invoiceNumber, orderId: saved.id, product: data.product, quantity: data.quantity, unit: data.unit, date: data.date, dueDate: data.date }
+      const existingInvoices = await db.select().from(records).where(and(eq(records.kind, 'invoices'), sql\`\${records.data}->>'orderId' = \${saved.id}\`))
+      if (existingInvoices.length) await db.update(records).set({ data: invoiceData, franchiseId }).where(eq(records.id, existingInvoices[0].id))
+      else await db.insert(records).values({ kind: 'invoices', franchiseId, data: invoiceData })
+      const previousPaid = Number(previous?.paid || 0)
+      if (paid > previousPaid) await db.insert(records).values({ kind: 'payments', franchiseId, data: { name: String(data.name), status: 'Received', amount: paid - previousPaid, paymentMethod: data.paymentMethod || 'Unspecified', paymentReference: data.paymentReference, orderId: saved.id, invoiceNumber, paymentDate: data.date || new Date().toISOString().slice(0, 10) } })
+      const deliveryStatus = data.deliveryStatus || (data.status === 'Ready' ? 'Planned' : data.status === 'Out for delivery' ? 'Out for delivery' : data.status === 'Delivered' ? 'Delivered' : undefined)
+      if (deliveryStatus) {
+        const deliveryData = { name: String(data.name), status: String(deliveryStatus), orderId: saved.id, product: data.product, quantity: data.quantity, unit: data.unit, deliveryDate: data.deliveryDate || data.date, deliveryWindow: data.deliveryWindow, driver: data.driver, driverPhone: data.phone, vehicleNumber: data.vehicleNumber, outlet: data.outlet, route: data.note }
+        const existingDeliveries = await db.select().from(records).where(and(eq(records.kind, 'deliveries'), sql\`\${records.data}->>'orderId' = \${saved.id}\`))
+        if (existingDeliveries.length) await db.update(records).set({ data: deliveryData, franchiseId }).where(eq(records.id, existingDeliveries[0].id))
+        else await db.insert(records).values({ kind: 'deliveries', franchiseId, data: deliveryData })
+      }
+      if (previous?.status !== 'Delivered' && data.status === 'Delivered' && Number(data.quantity || 0) > 0) {
+        await db.insert(records).values({ kind: 'stock_movements', franchiseId, data: { name: String(data.product) + ' customer delivery', status: 'Posted', product: data.product, quantity: Number(data.quantity), unit: data.unit, fromStage: 'Finished stock', toStage: data.channel === 'Mobile outlet' ? 'Mobile outlet / customer' : 'Customer', movementType: 'Order fulfilment', reference: saved.id, date: data.deliveryDate || data.date || new Date().toISOString().slice(0, 10) } })
+      }
     }
-    return Response.json(created, { status: 201, headers })
+    return Response.json(saved, { status: existing ? 200 : 201, headers })
   } catch {
     return Response.json({ error: 'The service is unavailable. Please try again. Your changes have not been saved.' }, { status: 503, headers })
   }
