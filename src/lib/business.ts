@@ -32,6 +32,14 @@ export type BusinessData = {
   yieldPct?: number
   sourceStock?: string
   processingBatch?: string
+  invoiceNumber?: string
+  deliveryDate?: string
+  deliveryWindow?: string
+  deliveryStatus?: string
+  stockStage?: string
+  qcStatus?: string
+  qcRemarks?: string
+  sourceProcessingBatch?: string
 }
 export type BusinessRecord = { id: string; kind: Kind; data: BusinessData; createdAt: string; franchiseId?: string | null }
 export type Franchise = { id: string; name: string; email: string; phone?: string; location: string; latitude: number; longitude: number; radius: number; status: string; note?: string; createdAt?: string }
