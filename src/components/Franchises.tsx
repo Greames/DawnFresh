@@ -49,8 +49,8 @@ export function FranchiseNetwork({ franchises, logins, rows, currency, isAdmin, 
         {overlaps.length > 0 && <p className="fine-print text-amber">Territory overlaps {overlaps.map(other => other.name).join(', ')}. Each business can be saved as a lead by only one franchise.</p>}
         <div className="franchise-actions"><button className="outline" onClick={() => view(franchise.id)}>Open dashboard <ArrowUpRight size={15} /></button>{isAdmin && <button className="icon-button" aria-label={`Edit ${franchise.name}`} onClick={() => edit(franchise)}><MoreHorizontal size={19} /></button>}</div>
       </article>
-    })}</div> : <section className="panel"><div className="empty-state"><Store size={30} /><h3>No franchises yet</h3><p>Add a franchise location and its working radius (up to 50 km), then give its owner a login in Users & access.</p>{isAdmin && <button className="outline" onClick={add}><Plus size={16} /> Add franchise</button>}</div></section>}
-    <div className="info-note"><Store size={18} /><span>Franchisees sign in with the <strong>franchisee</strong> role and only see their own leads, customer orders and supply requests. The company supplies every franchise: price, confirm and record payments in Franchise supply.</span></div>
+    })}</div> : <section className="panel"><div className="empty-state"><Store size={30} /><h3>No franchises yet</h3><p>Add a franchise location and its working radius (up to 50 km). Creating a franchise now automatically creates its franchisee login and emails an activation link.</p>{isAdmin && <button className="outline" onClick={add}><Plus size={16} /> Add franchise</button>}</div></section>}
+    <div className="info-note"><Store size={18} /><span>Franchisees sign in with the <strong>franchisee</strong> role and only see their own leads, customer orders and supply requests. The company supplies every franchise: price, confirm and record payments in Franchise supply. New franchisees receive a secure activation email when their franchise is created.</span></div>
   </>
 }
 
