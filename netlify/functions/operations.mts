@@ -80,7 +80,7 @@ export default async (req: Request) => {
     const own = access.role === 'franchisee' ? access.franchise : null
     if (req.method === 'GET') {
       // Only record kinds the user may view are returned.
-      const visible = (rows: (typeof records.$inferSelect)[]) => rows.filter(row => Object.hasOwn(statuses, row.kind) && allowed(access, row.kind as Module, 'view'))
+      const visible = (rows: (typeof records.$inferSelect)[]) => rows.filter(row => Object.hasOwn(statuses, row.kind) && allowed(access, kindModule(row.kind), 'view'))
       if (own) {
         const rows = await db.select().from(records).where(eq(records.franchiseId, own.id)).orderBy(desc(records.createdAt))
         const [configuration] = await db.select().from(settings).where(eq(settings.id, 'main'))
