@@ -18,7 +18,7 @@ const statuses: Record<string, string[]> = {
 
 function validate(kind: string, data: Record<string, unknown>) {
   if (typeof data !== 'object' || Array.isArray(data)) return false
-  const textFields = ['name', 'status', 'product', 'unit', 'phone', 'note', 'date', 'expiry', 'outlet', 'batch', 'segment', 'placeId', 'customerType', 'channel', 'outletType', 'vehicleNumber', 'driver', 'paymentMethod', 'paymentReference', 'sourceStock', 'processingBatch']
+  const textFields = ['name', 'status', 'product', 'unit', 'phone', 'note', 'date', 'expiry', 'outlet', 'batch', 'segment', 'placeId', 'customerType', 'channel', 'outletType', 'vehicleNumber', 'driver', 'paymentMethod', 'paymentReference', 'sourceStock', 'processingBatch', 'invoiceNumber', 'deliveryDate', 'deliveryWindow', 'deliveryStatus', 'stockStage', 'qcStatus', 'qcRemarks', 'sourceProcessingBatch']
   const numberFields = ['quantity', 'amount', 'paid', 'cost', 'temperature', 'latitude', 'longitude', 'inputQuantity', 'outputQuantity', 'wasteQuantity', 'yieldPct']
   if (Object.keys(data).some(key => !textFields.includes(key) && !numberFields.includes(key))) return false
   if (textFields.some(key => data[key] !== undefined && (typeof data[key] !== 'string' || String(data[key]).length > 1000))) return false
@@ -32,6 +32,7 @@ function validate(kind: string, data: Record<string, unknown>) {
   if (data.latitude !== undefined && (typeof data.latitude !== 'number' || !Number.isFinite(data.latitude) || Math.abs(data.latitude) > 90)) return false
   if (data.longitude !== undefined && (typeof data.longitude !== 'number' || !Number.isFinite(data.longitude) || Math.abs(data.longitude) > 180)) return false
   if (data.date && !/^\d{4}-\d{2}-\d{2}$/.test(String(data.date))) return false
+  for (const key of ['deliveryDate']) if (data[key] && !/^\d{4}-\d{2}-\d{2}$/.test(String(data[key]))) return false
   if (['orders', 'sourcing', 'inventory', 'supply', 'processing'].includes(kind) && (!['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns'].includes(String(data.product)) || typeof data.quantity !== 'number' || (kind !== 'inventory' && data.quantity <= 0) || !['kg', 'trays', 'pieces'].includes(String(data.unit)))) return false
   if (['orders', 'sourcing', 'supply'].includes(kind) && (typeof data.amount !== 'number' || typeof data.paid !== 'number')) return false
   if (kind === 'orders' && !data.date) return false
@@ -42,6 +43,7 @@ function validate(kind: string, data: Record<string, unknown>) {
   if (data.placeId !== undefined && (kind !== 'leads' || !/^[A-Za-z0-9_-]{1,300}$/.test(String(data.placeId)))) return false
   if (data.temperature !== undefined && (typeof data.temperature !== 'number' || !Number.isFinite(data.temperature))) return false
   if (kind === 'processing') {
+    if (data.qcStatus && !['Pending', 'Passed', 'Failed'].includes(String(data.qcStatus))) return false
     if (typeof data.inputQuantity !== 'number' || data.inputQuantity <= 0 || typeof data.outputQuantity !== 'number' || data.outputQuantity < 0 || typeof data.wasteQuantity !== 'number' || data.wasteQuantity < 0) return false
     if (data.outputQuantity + data.wasteQuantity > data.inputQuantity + 0.000001) return false
     const calculatedYield = data.inputQuantity ? data.outputQuantity / data.inputQuantity * 100 : 0
