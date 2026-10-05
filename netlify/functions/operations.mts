@@ -155,7 +155,6 @@ export default async (req: Request) => {
       if (claimed) return Response.json({ error: 'This business is already a lead in the network.' }, { status: 409, headers })
     }
     const franchiseId = franchise?.id ?? null
-    if (body.kind === 'payments' && existing && Number(data.amount || data.collectedAmount || 0) < Number(existing.data.amount || existing.data.collectedAmount || 0)) return Response.json({ error: 'Payment amounts cannot be reduced. Create a reversal record for a correction.' }, { status: 409, headers })
     const previous = existing?.data
     if (body.kind === 'payments' && existing && Number(data.amount || data.collectedAmount || 0) < Number(existing.data.amount || existing.data.collectedAmount || 0)) return Response.json({ error: 'Payment amounts cannot be reduced. Create a reversal record for a correction.' }, { status: 409, headers })
     let saved: typeof records.$inferSelect
