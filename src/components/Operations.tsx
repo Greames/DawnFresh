@@ -284,9 +284,9 @@ export function Operations() {
     const current = franchiseModal?.franchise
     setBusy(true); setFormError('')
     try {
-      const saved: Franchise = await request('/api/franchises', current ? { id: current.id, data: values.data } : values, current ? 'PATCH' : 'POST')
+      const saved: Franchise & { invitationSent?: boolean } = await request('/api/franchises', current ? { id: current.id, data: values.data } : values, current ? 'PATCH' : 'POST')
       setFranchises(list => current ? list.map(item => item.id === saved.id ? saved : item) : [...list, saved])
-      setFranchiseModal(null); setToast(current ? 'Franchise updated.' : 'Franchise created. Give its owner a login in Users & access.')
+      setFranchiseModal(null); setToast(current ? 'Franchise updated.' : saved.invitationSent ? `Franchise created. An activation email was sent to ${saved.email}.` : 'Franchise created, but the activation email could not be sent. Check Resend email settings and use Users & access to resend the login link.')
       request('/api/franchises').then(result => setLogins(result.logins)).catch(() => undefined)
     } catch (cause) { setFormError((cause as Error).message) }
     finally { setBusy(false) }
