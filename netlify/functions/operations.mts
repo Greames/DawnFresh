@@ -1,7 +1,7 @@
 import type { Config } from '@netlify/functions'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { franchises, records, settings } from '../../db/schema.js'
+import { appUsers, auditEvents, customerOrderItems, customerOrders, customers, franchises, records, settings } from '../../db/schema.js'
 import { allowed, franchiseView, profile, resolveAccess, sameOrigin } from '../../db/access.js'
 import { distance, franchiseKinds, segments, validRadius } from '../../src/lib/business.js'
 import type { Kind, Module } from '../../src/lib/business.js'
@@ -162,6 +162,117 @@ export default async (req: Request) => {
       ;[saved] = await db.update(records).set({ data, franchiseId }).where(eq(records.id, existing.id)).returning()
     } else {
       ;[saved] = await db.insert(records).values({ kind: body.kind, data, franchiseId }).returning()
+    }
+
+    // Project legacy lead/order records into the normalized core. This is deliberately
+    // additive: the existing operations_records row remains the compatibility record
+    // until the UI is migrated to the relational order engine.
+    let normalizedCustomerId = typeof data.customerId === 'string' && uuidPattern.test(data.customerId) ? data.customerId : undefined
+
+    if (body.kind === 'leads' && data.status === 'Customer') {
+      let customer
+      if (existing) {
+        ;[customer] = await db.select().from(customers).where(eq(customers.sourceLeadId, saved.id)).limit(1)
+      }
+      if (!customer && normalizedCustomerId) {
+        ;[customer] = await db.select().from(customers).where(eq(customers.id, normalizedCustomerId)).limit(1)
+      }
+      if (!customer && data.phone) {
+        ;[customer] = await db.select().from(customers).where(eq(customers.phone, String(data.phone))).limit(1)
+      }
+      if (customer) {
+        normalizedCustomerId = customer.id
+        await db.update(customers).set({
+          name: String(data.name),
+          phone: data.phone ? String(data.phone) : customer.phone,
+          customerType: data.customerType ? String(data.customerType) : customer.customerType,
+          updatedAt: new Date(),
+        }).where(eq(customers.id, customer.id))
+      } else {
+        ;[customer] = await db.insert(customers).values({
+          franchiseId,
+          sourceLeadId: saved.id,
+          name: String(data.name),
+          phone: data.phone ? String(data.phone) : undefined,
+          customerType: data.customerType ? String(data.customerType) : 'Business',
+          status: 'Active',
+          notes: data.note ? String(data.note) : undefined,
+        }).returning()
+        normalizedCustomerId = customer.id
+      }
+      data.customerId = normalizedCustomerId
+      ;[saved] = await db.update(records).set({ data }).where(eq(records.id, saved.id)).returning()
+      await db.insert(auditEvents).values({
+        actorUserId: access.id,
+        franchiseId,
+        entityType: 'customer',
+        entityId: normalizedCustomerId,
+        action: customer ? 'updated_from_lead' : 'created_from_lead',
+        metadata: { sourceLeadId: saved.id },
+      })
+    }
+
+    if (body.kind === 'orders') {
+      let customer
+      if (normalizedCustomerId) {
+        ;[customer] = await db.select().from(customers).where(eq(customers.id, normalizedCustomerId)).limit(1)
+      }
+      if (!customer && data.phone) {
+        ;[customer] = await db.select().from(customers).where(eq(customers.phone, String(data.phone))).limit(1)
+      }
+      if (!customer) {
+        ;[customer] = await db.insert(customers).values({
+          franchiseId,
+          name: String(data.name),
+          phone: data.phone ? String(data.phone) : undefined,
+          customerType: data.customerType ? String(data.customerType) : 'Business',
+          status: 'Active',
+        }).returning()
+      }
+      normalizedCustomerId = customer.id
+      data.customerId = normalizedCustomerId
+      ;[saved] = await db.update(records).set({ data }).where(eq(records.id, saved.id)).returning()
+
+      const orderDate = new Date(`${String(data.date)}T00:00:00.000Z`)
+      let normalizedOrder
+      ;[normalizedOrder] = await db.select().from(customerOrders).where(eq(customerOrders.legacyRecordId, saved.id)).limit(1)
+      const orderValues = {
+        customerId: normalizedCustomerId,
+        franchiseId,
+        legacyRecordId: saved.id,
+        status: String(data.status),
+        channel: data.channel ? String(data.channel) : undefined,
+        orderDate,
+        subtotal: data.subtotal !== undefined ? String(data.subtotal) : String(data.amount || 0),
+        tax: data.tax !== undefined ? String(data.tax) : undefined,
+        total: data.amount !== undefined ? String(data.amount) : '0',
+        paid: data.paid !== undefined ? String(data.paid) : '0',
+        currency: 'INR',
+        deliveryDate: data.deliveryDate ? new Date(`${String(data.deliveryDate)}T00:00:00.000Z`) : undefined,
+        updatedAt: new Date(),
+      }
+      if (normalizedOrder) {
+        ;[normalizedOrder] = await db.update(customerOrders).set(orderValues).where(eq(customerOrders.id, normalizedOrder.id)).returning()
+        await db.delete(customerOrderItems).where(eq(customerOrderItems.orderId, normalizedOrder.id))
+      } else {
+        ;[normalizedOrder] = await db.insert(customerOrders).values(orderValues).returning()
+      }
+      await db.insert(customerOrderItems).values({
+        orderId: normalizedOrder.id,
+        product: String(data.product),
+        quantity: String(data.quantity),
+        unit: String(data.unit),
+        unitPrice: data.unitPrice !== undefined ? String(data.unitPrice) : undefined,
+        lineTotal: data.amount !== undefined ? String(data.amount) : undefined,
+      })
+      await db.insert(auditEvents).values({
+        actorUserId: access.id,
+        franchiseId,
+        entityType: 'order',
+        entityId: normalizedOrder.id,
+        action: existing ? 'updated' : 'created',
+        metadata: { legacyRecordId: saved.id, customerId: normalizedCustomerId },
+      })
     }
 
     if (body.kind === 'processing' && data.status === 'Completed' && previous?.status !== 'Completed') {
