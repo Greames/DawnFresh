@@ -171,6 +171,7 @@ export default async (req: Request) => {
 
     if (body.kind === 'leads' && data.status === 'Customer') {
       let customer
+      let createdCustomer = false
       if (existing) {
         ;[customer] = await db.select().from(customers).where(eq(customers.sourceLeadId, saved.id)).limit(1)
       }
@@ -199,6 +200,7 @@ export default async (req: Request) => {
           notes: data.note ? String(data.note) : undefined,
         }).returning()
         normalizedCustomerId = customer.id
+        createdCustomer = true
       }
       data.customerId = normalizedCustomerId
       ;[saved] = await db.update(records).set({ data }).where(eq(records.id, saved.id)).returning()
@@ -207,7 +209,7 @@ export default async (req: Request) => {
         franchiseId,
         entityType: 'customer',
         entityId: normalizedCustomerId,
-        action: customer ? 'updated_from_lead' : 'created_from_lead',
+        action: createdCustomer ? 'created_from_lead' : 'updated_from_lead',
         metadata: { sourceLeadId: saved.id },
       })
     }
