@@ -1,7 +1,7 @@
 import type { Config } from '@netlify/functions'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { appUsers, auditEvents, customerOrderItems, customerOrders, customers, franchises, records, settings } from '../../db/schema.js'
+import { auditEvents, customerOrderItems, customerOrders, customers, franchises, records, settings } from '../../db/schema.js'
 import { allowed, franchiseView, profile, resolveAccess, sameOrigin } from '../../db/access.js'
 import { distance, franchiseKinds, segments, validRadius } from '../../src/lib/business.js'
 import type { Kind, Module } from '../../src/lib/business.js'
