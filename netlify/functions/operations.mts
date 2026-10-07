@@ -1,7 +1,7 @@
 import type { Config } from '@netlify/functions'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { auditEvents, customerOrderItems, customerOrders, customers, franchises, records, settings } from '../../db/schema.js'
+import { auditEvents, customerOrderItems, customerOrders, customers, franchises, invoiceRecords, productionOrders, records, settings } from '../../db/schema.js'
 import { allowed, franchiseView, profile, resolveAccess, sameOrigin } from '../../db/access.js'
 import { distance, franchiseKinds, segments, validRadius } from '../../src/lib/business.js'
 import type { Kind, Module } from '../../src/lib/business.js'
@@ -275,6 +275,37 @@ export default async (req: Request) => {
         action: existing ? 'updated' : 'created',
         metadata: { legacyRecordId: saved.id, customerId: normalizedCustomerId },
       })
+
+      const [existingProduction] = await db.select({ id: productionOrders.id }).from(productionOrders).where(eq(productionOrders.orderId, normalizedOrder.id)).limit(1)
+      if (!existingProduction && normalizedOrder.status !== 'Cancelled') {
+        const item = orderItems[0]
+        if (item) await db.insert(productionOrders).values({
+          orderId: normalizedOrder.id,
+          franchiseId: saved.franchiseId,
+          product: item.product,
+          requestedQuantity: item.quantity,
+          unit: item.unit,
+          status: normalizedOrder.status === 'Delivered' ? 'Completed' : 'Planned',
+          dueAt: normalizedOrder.deliveryDate,
+        })
+      }
+      const [existingInvoiceCore] = await db.select({ id: invoiceRecords.id }).from(invoiceRecords).where(eq(invoiceRecords.orderId, normalizedOrder.id)).limit(1)
+      if (!existingInvoiceCore && normalizedOrder.status !== 'Cancelled') {
+        const total = normalizedOrder.total || '0'
+        const paid = normalizedOrder.paid || '0'
+        const paidNumber = Number(paid), totalNumber = Number(total)
+        await db.insert(invoiceRecords).values({
+          orderId: normalizedOrder.id,
+          invoiceNumber: String(data.invoiceNumber || 'INV-' + new Date().getFullYear() + '-' + saved.id.slice(0, 8).toUpperCase()),
+          subtotal: String(normalizedOrder.subtotal || total),
+          tax: String(normalizedOrder.tax || '0'),
+          total,
+          paid,
+          status: paidNumber >= totalNumber && totalNumber > 0 ? 'Paid' : paidNumber > 0 ? 'Partially Paid' : 'Issued',
+          issuedAt: new Date(),
+          dueAt: normalizedOrder.deliveryDate,
+        })
+      }
     }
 
     if (body.kind === 'processing' && data.status === 'Completed' && previous?.status !== 'Completed') {
