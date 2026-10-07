@@ -278,7 +278,7 @@ export default async (req: Request) => {
 
       const [existingProduction] = await db.select({ id: productionOrders.id }).from(productionOrders).where(eq(productionOrders.orderId, normalizedOrder.id)).limit(1)
       if (!existingProduction && normalizedOrder.status !== 'Cancelled') {
-        const item = orderItems[0]
+        const item = { product: String(data.product), quantity: String(data.quantity), unit: String(data.unit) }
         if (item) await db.insert(productionOrders).values({
           orderId: normalizedOrder.id,
           franchiseId: saved.franchiseId,
