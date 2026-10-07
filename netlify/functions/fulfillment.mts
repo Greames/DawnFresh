@@ -161,6 +161,32 @@ export default async (req: Request) => {
       return Response.json(payment, { status: 201, headers })
     }
 
+    if (action === 'create-driver') {
+      if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Order edit access is required.' }, { status: 403, headers })
+      const franchiseId = data.franchiseId ? text(data.franchiseId, 80) : null
+      if (!franchiseAllowed(access, franchiseId) || !text(data.name, 180) || !text(data.phone, 30)) return Response.json({ error: 'Driver name and phone are required.' }, { status: 400, headers })
+      const [driver] = await db.insert(drivers).values({ name: text(data.name, 180), phone: text(data.phone, 30), status: text(data.status, 40) || 'Available', franchiseId }).returning()
+      return Response.json(driver, { status: 201, headers })
+    }
+
+    if (action === 'create-vehicle') {
+      if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Order edit access is required.' }, { status: 403, headers })
+      const franchiseId = data.franchiseId ? text(data.franchiseId, 80) : null
+      if (!franchiseAllowed(access, franchiseId) || !text(data.registrationNumber, 50) || !text(data.type, 50)) return Response.json({ error: 'Vehicle registration and type are required.' }, { status: 400, headers })
+      const [vehicle] = await db.insert(vehicles).values({ registrationNumber: text(data.registrationNumber, 50).toUpperCase(), type: text(data.type, 50), status: text(data.status, 40) || 'Available', franchiseId }).returning()
+      return Response.json(vehicle, { status: 201, headers })
+    }
+
+    if (action === 'create-settlement') {
+      if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Settlement edit access is required.' }, { status: 403, headers })
+      const franchiseId = text(data.franchiseId, 80)
+      if (!franchiseId || !franchiseAllowed(access, franchiseId)) return Response.json({ error: 'A valid franchise is required.' }, { status: 400, headers })
+      const start = new Date(String(data.periodStart)), end = new Date(String(data.periodEnd))
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return Response.json({ error: 'Settlement period is invalid.' }, { status: 400, headers })
+      const [settlement] = await db.insert(settlementRecords).values({ franchiseId, periodStart: start, periodEnd: end, grossSales: String(num(data.grossSales)), collections: String(num(data.collections)), adjustments: String(num(data.adjustments)), amountDue: String(num(data.amountDue)), status: text(data.status, 40) || 'Open' }).returning()
+      return Response.json(settlement, { status: 201, headers })
+    }
+
     if (action === 'create-invoice') {
       if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Order edit access is required.' }, { status: 403, headers })
       const orderId = text(data.orderId,80)
