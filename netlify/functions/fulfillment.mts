@@ -2,7 +2,7 @@ import type { Config } from '@netlify/functions'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import {
-  auditEvents, customerAddresses, customerOrders, dispatchLoads, deliveryRoutes, deliveryStops,
+  auditEvents, customerAddresses, customerOrderItems, customerOrders, dispatchLoads, deliveryRoutes, deliveryStops,
   drivers, invoiceRecords, labels, packageItems, packages, paymentRecords, processingBatches,
   productionOrders, proofOfDelivery, qcChecks, settlementRecords, stockLots, vehicles
 } from '../../db/schema.js'
@@ -58,7 +58,7 @@ export default async (req: Request) => {
       const orderId = text(data.orderId, 80)
       const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, orderId))
       if (!order || !franchiseAllowed(access, order.franchiseId)) return Response.json({ error: 'Order not found.' }, { status: 404, headers })
-      const [item] = await db.select().from((await import('../../db/schema.js')).customerOrderItems).where(eq((await import('../../db/schema.js')).customerOrderItems.orderId, order.id))
+      const [item] = await db.select().from(customerOrderItems).where(eq(customerOrderItems.orderId, order.id))
       const product = text(data.product, 80) || item?.product
       const quantity = num(data.quantity, num(item?.quantity))
       if (!products.includes(product) || quantity <= 0) return Response.json({ error: 'A valid product and quantity are required.' }, { status: 400, headers })
