@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowRight, ArrowUpRight, Bell, BookOpen, Boxes, Eye, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Download, ExternalLink, LayoutDashboard, Leaf, MapPin, Menu, MessageCircle, MoreHorizontal, Package, Plus, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Sprout, Store, Target, Truck, Users, Wallet, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Bell, BookOpen, Boxes, ClipboardCheck, Eye, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Download, ExternalLink, LayoutDashboard, Leaf, MapPin, Menu, MessageCircle, MoreHorizontal, Package, Plus, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Sprout, Store, Target, Truck, Users, Wallet, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { can, radiusOptions, dateOffset, defaultSettings, demoFranchises, demoRecords, demoUsers, discoveryCategories, distance, franchiseKinds, money, products, resolvePermissions, segments, statusOptions } from '../lib/business'
 import type { AccessProfile, AppUser, BusinessData, BusinessRecord, Franchise, FranchiseLogins, Kind, Module, Settings } from '../lib/business'
@@ -10,7 +10,7 @@ import { FulfilmentWorkspace } from './Fulfilment'
 import type { UserFormValues } from './Users'
 
 type Section = 'overview' | Kind | 'fulfilment' | 'territory' | 'deliveries' | 'settings' | 'playbook' | 'franchises' | 'users'
-const sectionModule: Partial<Record<Section, Module>> = { orders: 'orders', deliveries: 'orders', invoices: 'orders', payments: 'orders', settlements: 'supply', stock_movements: 'supply', leads: 'leads', territory: 'leads', inventory: 'inventory', sourcing: 'sourcing', outlets: 'outlets', processing: 'processing', supply: 'supply', franchises: 'franchises' }
+const sectionModule: Partial<Record<Section, Module>> = { fulfilment: 'processing', orders: 'orders', deliveries: 'orders', invoices: 'orders', payments: 'orders', settlements: 'supply', stock_movements: 'supply', leads: 'leads', territory: 'leads', inventory: 'inventory', sourcing: 'sourcing', outlets: 'outlets', processing: 'processing', supply: 'supply', franchises: 'franchises' }
 type NavItem = { id: Section; label: string; icon: LucideIcon; group?: string }
 const companyNavigation: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'WORKSPACE' },
