@@ -333,7 +333,8 @@ export const proofOfDelivery = pgTable('proof_of_delivery', {
 
 export const invoiceRecords = pgTable('invoice_records', {
   id: uuid().defaultRandom().primaryKey(),
-  orderId: uuid('order_id').notNull().references(() => customerOrders.id),
+  orderId: uuid('order_id').references(() => customerOrders.id),
+  posSaleId: uuid('pos_sale_id'),
   invoiceNumber: text('invoice_number').notNull().unique(),
   subtotal: text().notNull().default('0'),
   tax: text().notNull().default('0'),
@@ -353,6 +354,7 @@ export const paymentRecords = pgTable('payment_records', {
   id: uuid().defaultRandom().primaryKey(),
   orderId: uuid('order_id').notNull().references(() => customerOrders.id),
   invoiceId: uuid('invoice_id').references(() => invoiceRecords.id),
+  posSaleId: uuid('pos_sale_id'),
   amount: text().notNull(),
   method: text().notNull(),
   reference: text(),
