@@ -70,7 +70,7 @@ export type BusinessData = {
 export type BusinessRecord = { id: string; kind: Kind; data: BusinessData; createdAt: string; franchiseId?: string | null }
 export type Franchise = { id: string; name: string; email: string; phone?: string; location: string; latitude: number; longitude: number; radius: number; status: string; note?: string; createdAt?: string }
 export type FranchiseLogins = { users: number; active: number; lastSignInAt?: string }
-export type Module = 'orders' | 'leads' | 'inventory' | 'sourcing' | 'outlets' | 'supply' | 'processing' | 'franchises'
+export type Module = 'orders' | 'leads' | 'inventory' | 'sourcing' | 'outlets' | 'pos' | 'supply' | 'processing' | 'franchises'
 export type AccessLevel = 'none' | 'view' | 'edit'
 export type Role = 'admin' | 'staff' | 'franchisee'
 export type Permissions = Record<Module, AccessLevel>
@@ -83,6 +83,7 @@ export const modules: { id: Module; label: string; short: string; detail: string
   { id: 'inventory', short: 'Inventory', label: 'Inventory', detail: 'Stock lots, batches and expiry' },
   { id: 'sourcing', short: 'Sourcing', label: 'Sourcing', detail: 'Farmer and supplier purchases' },
   { id: 'outlets', short: 'Outlets', label: 'Outlets', detail: 'Processing unit, retail and mobile outlets' },
+  { id: 'pos', short: 'POS', label: 'POS & outlet sales', detail: 'Bills, payments, outlet stock and reconciliation' },
   { id: 'processing', short: 'Processing', label: 'Processing & QC', detail: 'Raw stock to finished stock, yield, waste and quality checks' },
   { id: 'franchises', short: 'Network', label: 'Franchise network', detail: 'Franchise locations and results' },
 ]
@@ -96,7 +97,7 @@ export const userStatuses = ['Active', 'Disabled']
 export const roleModules: Record<Role, Module[]> = {
   admin: modules.map(module => module.id),
   staff: modules.map(module => module.id),
-  franchisee: ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets'],
+  franchisee: ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets', 'pos'],
 }
 // Stored permissions are sparse; anything missing falls back to the role default.
 export function resolvePermissions(role: Role, stored: Partial<Record<string, unknown>> = {}): Permissions {
