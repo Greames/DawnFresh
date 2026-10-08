@@ -43,6 +43,7 @@ const franchiseNavigation: NavItem[] = [
   { id: 'invoices', label: 'Invoices', icon: CircleDollarSign },
   { id: 'payments', label: 'Payments & collections', icon: Wallet },
   { id: 'supply', label: 'Stock from company', icon: Boxes, group: 'SUPPLY' },
+  { id: 'stock_movements', label: 'Stock movement history', icon: Package },
   { id: 'processing', label: 'Processing & QC', icon: Check },
   { id: 'inventory', label: 'Finished stock', icon: Package },
   { id: 'outlets', label: 'My outlets & vehicles', icon: Store },
