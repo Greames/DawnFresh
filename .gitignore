@@ -3,3 +3,6 @@ dist
 
 # Local Netlify folder
 .netlify
+
+# Playwright authenticated session state
+e2e/.auth/
