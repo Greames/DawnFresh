@@ -27,6 +27,7 @@ export const purchaseOrders = pgTable('purchase_orders', {
 
 export const goodsReceipts = pgTable('goods_receipts', {
   id: uuid().defaultRandom().primaryKey(),
+  stockLotId: uuid('stock_lot_id').references(() => stockLots.id),
   purchaseOrderId: uuid('purchase_order_id').notNull().references(() => purchaseOrders.id),
   receivedQuantity: numeric('received_quantity', { precision: 16, scale: 3 }).notNull(),
   acceptedQuantity: numeric('accepted_quantity', { precision: 16, scale: 3 }).notNull(),
