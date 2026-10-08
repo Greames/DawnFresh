@@ -65,6 +65,7 @@ export default async (req:Request)=>{
     }
     await tx.update(purchaseOrders).set({status:'Received'}).where(eq(purchaseOrders.id,po.id))
     await tx.insert(auditEvents).values({actorUserId:actor,entityType:'goods_receipt',entityId:receipt.id,action:'received',metadata:{purchaseOrderId,accepted,rejected,qcStatus:qc,stockLotId:lot?.id||null,supplyRequestId:po.supplyRequestId||null}})
+    if(lot) await tx.update(goodsReceipts).set({stockLotId:lot.id}).where(eq(goodsReceipts.id,receipt.id))
     return {receipt,stockLot:lot}
    })
    return Response.json(result,{status:201,headers})
@@ -106,7 +107,7 @@ export default async (req:Request)=>{
    if(request.data.status!=='Confirmed'&&request.data.status!=='Dispatched')return Response.json({error:'Supply Request must be Confirmed or Dispatched before franchise receipt.'},{status:400,headers})
    const result=await db.transaction(async tx=>{
     let remaining=quantity
-    const lots=await tx.select().from(stockLots).where(and(eq(stockLots.product,product),eq(stockLots.stage,'Finished stock'),eq(stockLots.status,'Available'))).orderBy(asc(stockLots.createdAt))
+    const lots=await tx.select().from(stockLots).where(and(eq(stockLots.id,grn.stockLotId!),eq(stockLots.product,product),eq(stockLots.stage,'Finished stock'),eq(stockLots.status,'Available')))
     const allocations:{id:string;qty:number}[]=[]
     for(const lot of lots){const available=Math.max(0,num(lot.quantity));if(available<=0)continue;const take=Math.min(available,remaining);allocations.push({id:lot.id,qty:take});remaining-=take;if(remaining<=0.000001)break}
     if(remaining>0.000001)throw new Error(`Insufficient company stock for ${product}.`)
