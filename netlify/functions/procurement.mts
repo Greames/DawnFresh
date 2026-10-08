@@ -1,7 +1,7 @@
 import type { Config } from '@netlify/functions'
 import { and, asc, desc, eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { auditEvents, franchises, stockLots } from '../../db/schema.js'
+import { auditEvents, franchises, records, stockLots } from '../../db/schema.js'
 import { franchiseStockLedger, goodsReceipts, purchaseOrders, supplierInvoices, supplierPayments, suppliers } from '../../db/procurement-schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
 
@@ -39,11 +39,15 @@ export default async (req:Request)=>{
 
   if(action==='create-po'){
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
-   const supplierId=txt(data.supplierId,80),product=txt(data.product,80),quantity=num(data.quantity),unit=txt(data.unit,30)||'kg',unitPrice=num(data.unitPrice)
+   const supplierId=txt(data.supplierId,80),product=txt(data.product,80),quantity=num(data.quantity),unit=txt(data.unit,30)||'kg',unitPrice=num(data.unitPrice),supplyRequestId=txt(data.supplyRequestId,80)
    const [supplier]=await db.select().from(suppliers).where(eq(suppliers.id,supplierId))
-   if(!supplier||!products.includes(product)||quantity<=0||unitPrice<0)return Response.json({error:'Valid supplier, product, quantity and price are required.'},{status:400,headers})
-   const [row]=await db.insert(purchaseOrders).values({supplierId,product,quantity:String(quantity),unit,unitPrice:String(unitPrice),total:String(quantity*unitPrice),status:'Ordered',expectedAt:data.expectedAt?new Date(String(data.expectedAt)):undefined}).returning()
-   await db.insert(auditEvents).values({actorUserId:actor,entityType:'purchase_order',entityId:row.id,action:'created',metadata:{supplierId,product,quantity,total:quantity*unitPrice}})
+   if(!supplier||!products.includes(product)||quantity<=0||unitPrice<0||!supplyRequestId)return Response.json({error:'Supplier, product, quantity, price and Supply Request ID are required.'},{status:400,headers})
+   const [request]=await db.select().from(records).where(eq(records.id,supplyRequestId))
+   if(!request||request.kind!=='supply'||!request.franchiseId)return Response.json({error:'Valid franchise supply request is required.'},{status:400,headers})
+   if(request.data.product!==product)return Response.json({error:'PO product must match the franchise supply request.'},{status:400,headers})
+   const [row]=await db.insert(purchaseOrders).values({supplyRequestId,supplierId,product,quantity:String(quantity),unit,unitPrice:String(unitPrice),total:String(quantity*unitPrice),status:'Ordered',expectedAt:data.expectedAt?new Date(String(data.expectedAt)):undefined}).returning()
+   await db.insert(auditEvents).values({actorUserId:actor,entityType:'purchase_order',entityId:row.id,action:'created',metadata:{supplierId,product,quantity,total:quantity*unitPrice,supplyRequestId}})
+   await db.update(records).set({data:{...request.data,status:'Confirmed',purchaseOrderId:row.id}}).where(eq(records.id,supplyRequestId))
    return Response.json(row,{status:201,headers})
   }
 
@@ -60,7 +64,7 @@ export default async (req:Request)=>{
      ;[lot]=await tx.insert(stockLots).values({product:po.product,quantity:String(accepted),unit:po.unit,stage:'Finished stock',batchCode:receipt.batchCode,status:'Available'}).returning()
     }
     await tx.update(purchaseOrders).set({status:'Received'}).where(eq(purchaseOrders.id,po.id))
-    await tx.insert(auditEvents).values({actorUserId:actor,entityType:'goods_receipt',entityId:receipt.id,action:'received',metadata:{purchaseOrderId,accepted,rejected,qcStatus:qc,stockLotId:lot?.id||null}})
+    await tx.insert(auditEvents).values({actorUserId:actor,entityType:'goods_receipt',entityId:receipt.id,action:'received',metadata:{purchaseOrderId,accepted,rejected,qcStatus:qc,stockLotId:lot?.id||null,supplyRequestId:po.supplyRequestId||null}})
     return {receipt,stockLot:lot}
    })
    return Response.json(result,{status:201,headers})
@@ -90,9 +94,16 @@ export default async (req:Request)=>{
 
   if(action==='transfer-to-franchise'){
    if(!allowed(access,'supply','edit'))return Response.json({error:'Supply edit access is required.'},{status:403,headers})
-   const franchiseId=txt(data.franchiseId,80),product=txt(data.product,80),quantity=num(data.quantity)
+   const franchiseId=txt(data.franchiseId,80),product=txt(data.product,80),quantity=num(data.quantity),supplyRequestId=txt(data.supplyRequestId,80),purchaseOrderId=txt(data.purchaseOrderId,80),goodsReceiptId=txt(data.goodsReceiptId,80)
    const [franchise]=await db.select().from(franchises).where(eq(franchises.id,franchiseId))
-   if(!franchise||!products.includes(product)||quantity<=0)return Response.json({error:'Valid franchise, product and quantity are required.'},{status:400,headers})
+   if(!franchise||!products.includes(product)||quantity<=0||!supplyRequestId||!purchaseOrderId||!goodsReceiptId)return Response.json({error:'Franchise, product, quantity, Supply Request ID, Purchase Order ID and GRN ID are required.'},{status:400,headers})
+   const [request]=await db.select().from(records).where(eq(records.id,supplyRequestId))
+   const [po]=await db.select().from(purchaseOrders).where(eq(purchaseOrders.id,purchaseOrderId))
+   const [grn]=await db.select().from(goodsReceipts).where(eq(goodsReceipts.id,goodsReceiptId))
+   if(!request||request.kind!=='supply'||request.franchiseId!==franchiseId)return Response.json({error:'Supply request does not belong to this franchise.'},{status:400,headers})
+   if(!po||po.supplyRequestId!==supplyRequestId)return Response.json({error:'Purchase Order is not linked to this Supply Request.'},{status:400,headers})
+   if(!grn||grn.purchaseOrderId!==purchaseOrderId||grn.qcStatus!=='Passed')return Response.json({error:'A passed GRN linked to this Purchase Order is required.'},{status:400,headers})
+   if(request.data.status!=='Confirmed'&&request.data.status!=='Dispatched')return Response.json({error:'Supply Request must be Confirmed or Dispatched before franchise receipt.'},{status:400,headers})
    const result=await db.transaction(async tx=>{
     let remaining=quantity
     const lots=await tx.select().from(stockLots).where(and(eq(stockLots.product,product),eq(stockLots.stage,'Finished stock'),eq(stockLots.status,'Available'))).orderBy(asc(stockLots.createdAt))
@@ -109,10 +120,12 @@ export default async (req:Request)=>{
      const newQty=num(lot.quantity)-a.qty
      await tx.update(stockLots).set({quantity:String(newQty),status:newQty>0?'Available':'Depleted',updatedAt:new Date()}).where(eq(stockLots.id,lot.id))
      lastBalance+=a.qty
-     const [row]=await tx.insert(franchiseStockLedger).values({franchiseId,product,stockLotId:lot.id,movementType:'SupplyIn',quantity:String(a.qty),referenceType:'FRANCHISE_SUPPLY',referenceId:data.referenceId?txt(data.referenceId,80):null,balanceAfter:String(lastBalance),createdBy:actor}).returning()
+     const [row]=await tx.insert(franchiseStockLedger).values({franchiseId,product,stockLotId:lot.id,movementType:'SupplyIn',quantity:String(a.qty),referenceType:'FRANCHISE_SUPPLY',referenceId:supplyRequestId,supplyRequestId,purchaseOrderId,goodsReceiptId,balanceAfter:String(lastBalance),createdBy:actor}).returning()
      rows.push(row)
     }
-    await tx.insert(auditEvents).values({actorUserId:actor,franchiseId,entityType:'franchise_stock_supply',action:'received',metadata:{product,quantity,franchiseId,rows:rows.length}})
+    await tx.update(records).set({data:{...request.data,status:'Delivered',deliveredQuantity:quantity,purchaseOrderId,goodsReceiptId,receivedAt:new Date().toISOString()}}).where(eq(records.id,supplyRequestId))
+    await tx.insert(records).values({kind:'stock_movements',franchiseId,data:{name:`${product} received from company`,status:'Posted',date:new Date().toISOString().slice(0,10),product,quantity,unit:request.data.unit||'kg',reference:supplyRequestId,fromStage:'Finished stock',toStage:'Franchise stock',movementType:'SupplyIn',supplyRequestId,purchaseOrderId,goodsReceiptId}})
+    await tx.insert(auditEvents).values({actorUserId:actor,franchiseId,entityType:'franchise_stock_supply',action:'received',metadata:{product,quantity,franchiseId,rows:rows.length,supplyRequestId,purchaseOrderId,goodsReceiptId}})
     return rows
    })
    return Response.json({rows:result},{status:201,headers})
