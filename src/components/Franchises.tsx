@@ -58,6 +58,7 @@ export function FranchiseForm({ franchise, busy, error, save }: { franchise?: Fr
   const currentRadius = franchise?.radius ?? FRANCHISE_RADIUS_KM
   const options = radiusOptions.includes(currentRadius) ? radiusOptions : [...radiusOptions, currentRadius].sort((a, b) => a - b)
   const [validation, setValidation] = useState('')
+  const [locating, setLocating] = useState(false)
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const values = new FormData(event.currentTarget)
@@ -69,6 +70,28 @@ export function FranchiseForm({ franchise, busy, error, save }: { franchise?: Fr
     <label>Franchise name<input name="name" required maxLength={120} defaultValue={franchise?.name} placeholder="e.g. North City franchise" /></label>
     <div className="form-grid"><label>Contact email<input name="email" type="email" required disabled={!!franchise} defaultValue={franchise?.email} autoComplete="off" /></label><label>Status<select name="status" defaultValue={franchise?.status || 'Active'}>{franchiseStatuses.map(status => <option key={status}>{status}</option>)}</select></label></div>
     <label>Allocated location<input name="location" required maxLength={180} defaultValue={franchise?.location} placeholder="Area, market or outlet address" /></label>
+    <div className="locate-row">
+      <button type="button" className="outline" disabled={locating || busy} onClick={event => {
+        const form = event.currentTarget.form
+        if (!form || !('geolocation' in navigator)) { setValidation('This browser cannot share its location. Enter the location and coordinates manually.'); return }
+        setLocating(true); setValidation('')
+        navigator.geolocation.getCurrentPosition(position => {
+          const latitude = position.coords.latitude
+          const longitude = position.coords.longitude
+          const latInput = form.elements.namedItem('latitude') as HTMLInputElement | null
+          const lngInput = form.elements.namedItem('longitude') as HTMLInputElement | null
+          const locationInput = form.elements.namedItem('location') as HTMLInputElement | null
+          if (latInput) latInput.value = latitude.toFixed(6)
+          if (lngInput) lngInput.value = longitude.toFixed(6)
+          if (locationInput && !locationInput.value.trim()) locationInput.value = 'Current device location'
+          setLocating(false)
+        }, () => {
+          setLocating(false)
+          setValidation('Location permission was denied or unavailable. Allow location for this site, or enter the coordinates manually.')
+        }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 300000 })
+      }}><MapPin size={15} /> {locating ? 'Finding location…' : 'Use my current location'}</button>
+      <small>Allow location access to automatically set the franchise territory center. The coordinates are saved with the franchise and used for nearby business discovery.</small>
+    </div>
     <div className="form-grid"><label>Latitude<input name="latitude" type="number" min="-90" max="90" step="any" required defaultValue={franchise?.latitude} /></label><label>Longitude<input name="longitude" type="number" min="-180" max="180" step="any" required defaultValue={franchise?.longitude} /></label></div>
     <label>Working radius<select name="radius" defaultValue={currentRadius}>{options.map(km => <option key={km} value={km}>{km} km</option>)}</select><small>The franchisee only sees and can add restaurants, caterers and hotels within this straight-line distance of the location above.</small></label>
     <label>Franchisee phone (international digits)<input name="phone" type="tel" pattern="[0-9]{7,15}" defaultValue={franchise?.phone} /></label>
