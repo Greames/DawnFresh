@@ -63,10 +63,20 @@ export default async (req:Request)=>{
    if(!items.length)return Response.json({error:'At least one sale item is required.'},{status:400,headers})
    const subtotal=items.reduce((a:number,i:any)=>a+n(i.quantity)*n(i.unitPrice),0), discount=items.reduce((a:number,i:any)=>a+n(i.discount),0), tax=items.reduce((a:number,i:any)=>a+n(i.tax),0), total=Math.max(0,subtotal-discount+tax)
    const bill=s(data.billNumber,80)||`POS-${Date.now()}`
+   const requestedByProduct=new Map<string,number>()
+   for(const item of items){
+    const product=s(item.product,80),qty=n(item.quantity)
+    if(!products.includes(product)||qty<=0)throw new Error('Invalid sale item')
+    requestedByProduct.set(product,(requestedByProduct.get(product)||0)+qty)
+   }
+   for(const [product,requested] of requestedByProduct){
+    const [last]=await db.select().from(outletStockLedger).where(and(eq(outletStockLedger.outletId,outletId),eq(outletStockLedger.product,product))).orderBy(desc(outletStockLedger.createdAt)).limit(1)
+    const balance=n(last?.balanceAfter)
+    if(balance-requested<0 && data.allowNegativeStock!==true)return Response.json({error:`Insufficient outlet stock for ${product}.`},{status:409,headers})
+   }
    const [sale]=await db.insert(posSales).values({outletId,shiftId,billNumber:bill,customerId:data.customerId?s(data.customerId,80):null,cashierId:actor,subtotal:String(subtotal),discount:String(discount),tax:String(tax),total:String(total),status:'Completed'}).returning()
    for(const item of items){
     const product=s(item.product,80); const qty=n(item.quantity)
-    if(!products.includes(product)||qty<=0)throw new Error('Invalid sale item')
     await db.insert(posSaleItems).values({saleId:sale.id,product,quantity:String(qty),unit:s(item.unit,20)||'kg',unitPrice:String(n(item.unitPrice)),discount:String(n(item.discount)),tax:String(n(item.tax)),total:String(Math.max(0,qty*n(item.unitPrice)-n(item.discount)+n(item.tax))),stockLotId:item.stockLotId?s(item.stockLotId,80):null})
    }
    const payments=Array.isArray(data.payments)?data.payments:[{method:'Cash',amount:total}]
@@ -80,7 +90,6 @@ export default async (req:Request)=>{
     const product=s(item.product,80),qty=n(item.quantity)
     const [last]=await db.select().from(outletStockLedger).where(and(eq(outletStockLedger.outletId,outletId),eq(outletStockLedger.product,product))).orderBy(desc(outletStockLedger.createdAt)).limit(1)
     const balance=n(last?.balanceAfter)-qty
-    if(balance<0 && data.allowNegativeStock!==true)return Response.json({error:`Insufficient outlet stock for ${product}.`},{status:409,headers})
     await db.insert(outletStockLedger).values({outletId,product,stockLotId:item.stockLotId?s(item.stockLotId,80):null,movementType:'Sale',quantity:String(-qty),referenceType:'POS_SALE',referenceId:sale.id,balanceAfter:String(balance),createdBy:actor})
    }
    await db.insert(auditEvents).values({actorUserId:actor,franchiseId:outlet.franchiseId,entityType:'pos_sale',entityId:sale.id,action:'completed',metadata:{outletId,billNumber:bill,total,invoiceId:invoice.id}})
