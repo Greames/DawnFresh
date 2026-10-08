@@ -12,6 +12,7 @@ export const suppliers = pgTable('suppliers', {
 
 export const purchaseOrders = pgTable('purchase_orders', {
   id: uuid().defaultRandom().primaryKey(),
+  supplyRequestId: uuid('supply_request_id'),
   supplierId: uuid('supplier_id').notNull().references(() => suppliers.id),
   product: text().notNull(),
   quantity: numeric({ precision: 16, scale: 3 }).notNull(),
@@ -61,6 +62,9 @@ export const supplierPayments = pgTable('supplier_payments', {
 
 export const franchiseStockLedger = pgTable('franchise_stock_ledger', {
   id: uuid().defaultRandom().primaryKey(),
+  supplyRequestId: uuid('supply_request_id'),
+  purchaseOrderId: uuid('purchase_order_id'),
+  goodsReceiptId: uuid('goods_receipt_id'),
   franchiseId: uuid('franchise_id').notNull().references(() => franchises.id),
   product: text().notNull(),
   stockLotId: uuid('stock_lot_id').references(() => stockLots.id),
@@ -74,4 +78,5 @@ export const franchiseStockLedger = pgTable('franchise_stock_ledger', {
 }, table => [
   index('franchise_stock_ledger_franchise_product_idx').on(table.franchiseId, table.product, table.createdAt),
   index('franchise_stock_ledger_ref_idx').on(table.referenceType, table.referenceId),
+  index('franchise_stock_ledger_supply_request_idx').on(table.supplyRequestId, table.createdAt),
 ])
