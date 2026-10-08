@@ -12,7 +12,7 @@ const s = (v: unknown, m = 500) => typeof v === 'string' ? v.trim().slice(0, m) 
 const scope = (access: Awaited<ReturnType<typeof resolveAccess>>, franchiseId?: string | null) =>
   access.role !== 'franchisee' || !franchiseId || access.franchise?.id === franchiseId
 
-const latestBalance = async (tx: typeof db, outletId: string, product: string) => {
+const latestBalance = async (tx: any, outletId: string, product: string) => {
   const [last] = await tx.select().from(outletStockLedger)
     .where(and(eq(outletStockLedger.outletId, outletId), eq(outletStockLedger.product, product)))
     .orderBy(desc(outletStockLedger.createdAt)).limit(1)
@@ -108,7 +108,7 @@ export default async (req: Request) => {
 
       const result = await db.transaction(async tx => {
         for (const [product, requested] of requestedByProduct) {
-          const balance = await latestBalance(tx as typeof db, outletId, product)
+          const balance = await latestBalance(tx, outletId, product)
           if (balance - requested < -0.000001 && data.allowNegativeStock !== true) throw new Error(`Insufficient outlet stock for ${product}.`)
         }
 
