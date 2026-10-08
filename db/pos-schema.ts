@@ -4,7 +4,6 @@ import { franchises, appUsers, customers, stockLots } from './schema.js'
 export const posOutlets = pgTable('pos_outlets', {
   id: uuid().defaultRandom().primaryKey(),
   franchiseId: uuid('franchise_id').references(() => franchises.id),
-  legacyOutletId: uuid('legacy_outlet_id').references(() => (undefined as never)),
   code: text().notNull().unique(),
   name: text().notNull(),
   status: text().notNull().default('Active'),
