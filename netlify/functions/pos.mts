@@ -1,7 +1,7 @@
 import type { Config } from '@netlify/functions'
 import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { auditEvents, invoiceRecords, paymentRecords, stockLots } from '../../db/schema.js'
+import { auditEvents, invoiceRecords, paymentRecords } from '../../db/schema.js'
 import { outletStockLedger, posOutlets, posPayments, posReconciliations, posReturns, posSaleItems, posSales, posShifts } from '../../db/pos-schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
 
