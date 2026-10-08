@@ -61,7 +61,7 @@ export default async (req:Request)=>{
    const [outlet]=await db.select().from(posOutlets).where(eq(posOutlets.id,outletId)); const [shift]=await db.select().from(posShifts).where(eq(posShifts.id,shiftId))
    if(!outlet||!shift||shift.outletId!==outletId||shift.status!=='Open'||!scope(access,outlet.franchiseId))return Response.json({error:'Open outlet shift is required.'},{status:400,headers})
    if(!items.length)return Response.json({error:'At least one sale item is required.'},{status:400,headers})
-   const subtotal=items.reduce((a:(number),i:any)=>a+n(i.quantity)*n(i.unitPrice),0), discount=items.reduce((a:number,i:any)=>a+n(i.discount),0), tax=items.reduce((a:number,i:any)=>a+n(i.tax),0), total=Math.max(0,subtotal-discount+tax)
+   const subtotal=items.reduce((a:number,i:any)=>a+n(i.quantity)*n(i.unitPrice),0), discount=items.reduce((a:number,i:any)=>a+n(i.discount),0), tax=items.reduce((a:number,i:any)=>a+n(i.tax),0), total=Math.max(0,subtotal-discount+tax)
    const bill=s(data.billNumber,80)||`POS-${Date.now()}`
    const [sale]=await db.insert(posSales).values({outletId,shiftId,billNumber:bill,customerId:data.customerId?s(data.customerId,80):null,cashierId:actor,subtotal:String(subtotal),discount:String(discount),tax:String(tax),total:String(total),status:'Completed'}).returning()
    for(const item of items){
@@ -111,8 +111,8 @@ export default async (req:Request)=>{
    const shiftId=s(data.shiftId,80); const [shift]=await db.select().from(posShifts).where(eq(posShifts.id,shiftId))
    if(!shift||shift.status!=='Open')return Response.json({error:'Open shift not found.'},{status:404,headers})
    const rows=await db.select().from(posPayments).innerJoin(posSales,eq(posPayments.saleId,posSales.id)).where(eq(posSales.shiftId,shiftId))
-   const cash=rows.filter(r=>r.pos_payments.method==='Cash').reduce((a,r)=>a+n(r.pos_payments.amount),0)
-   const total=rows.reduce((a,r)=>a+n(r.pos_payments.amount),0)
+   const cash=rows.filter(r=>r.posPayments.method==='Cash').reduce((a,r)=>a+n(r.posPayments.amount),0)
+   const total=rows.reduce((a,r)=>a+n(r.posPayments.amount),0)
    const counted=n(data.countedCash); const expected=n(shift.openingCash)+cash; const variance=counted-expected
    await db.update(posShifts).set({status:'Closed',closedAt:new Date(),expectedCash:String(expected),countedCash:String(counted),cashVariance:String(variance)}).where(eq(posShifts.id,shiftId))
    const [rec]=await db.insert(posReconciliations).values({outletId:shift.outletId,shiftId,businessDate:new Date(),grossSales:String(total),netSales:String(total),cashCollected:String(cash),expectedCash:String(expected),countedCash:String(counted),variance:String(variance),status:Math.abs(variance)<0.01?'Closed':'Exception',closedBy:actor,closedAt:new Date()}).returning()
