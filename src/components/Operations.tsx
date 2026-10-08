@@ -46,6 +46,7 @@ const franchiseNavigation: NavItem[] = [
   { id: 'processing', label: 'Processing & QC', icon: Check },
   { id: 'inventory', label: 'Finished stock', icon: Package },
   { id: 'outlets', label: 'My outlets & vehicles', icon: Store },
+  { id: 'pos', label: 'My outlet sales', icon: ShoppingCart },
   { id: 'territory', label: 'My territory', icon: MapPin, group: 'GROWTH' },
   { id: 'playbook', label: 'Business playbook', icon: BookOpen },
 ]
