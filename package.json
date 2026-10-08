@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite dev --port 3000",
     "build": "vite build",
+    "e2e:auth": "node e2e/save-auth.mjs",
     "test:e2e": "playwright test e2e/franchise-procurement.spec.ts"
   },
   "dependencies": {
