@@ -12,8 +12,8 @@ const post=async(action:string,data:Record<string,unknown>)=>{const r=await fetc
 
 export function POSWorkspace(){
  const [data,setData]=useState<Data>({outlets:[],shifts:[],sales:[],payments:[],ledger:[],reconciliations:[]})
- const [outletId,setOutletId]=useState(''); const [shiftId,setShiftId]=useState(''); const [product,setProduct]=useState('Chicken'); const [qty,setQty]=useState('1'); const [price,setPrice]=useState('250'); const [method,setMethod]=useState('Cash'); const [loading,setLoading]=useState(false); const [message,setMessage]=useState('')
- const load=async()=>{setLoading(true);try{const r=await fetch('/api/pos');setData(await r.json())}finally{setLoading(false)}}
+ const [outletId,setOutletId]=useState(''); const [product,setProduct]=useState('Chicken'); const [qty,setQty]=useState('1'); const [price,setPrice]=useState('250'); const [method,setMethod]=useState('Cash'); const [message,setMessage]=useState('')
+ const load=async()=>{const r=await fetch('/api/pos');setData(await r.json())}
  useEffect(()=>{load()},[])
  const outlet=data.outlets.find(x=>x.id===outletId); const openShift=data.shifts.find(x=>x.outletId===outletId&&x.status==='Open')||null
  const salesToday=useMemo(()=>data.sales.filter(x=>new Date(x.soldAt).toDateString()===new Date().toDateString()),[data.sales])
@@ -40,9 +40,9 @@ export function POSWorkspace(){
     <label>Payment<select value={method} onChange={e=>setMethod(e.target.value)}>{['Cash','UPI','Card','Credit'].map(x=><option key={x}>{x}</option>)}</select></label>
    </div>
    <div className="button-row">
-    {!openShift&&outlet&&<button className="primary-button" onClick={()=>run(async()=>{const r=await post('open-shift',{outletId,openingCash:0});setShiftId(r.id)})}><Plus size={15}/> Open shift</button>}
+    {!openShift&&outlet&&<button className="primary-button" onClick={()=>run(async()=>{const r=await post('open-shift',{outletId,openingCash:0});void r})}><Plus size={15}/> Open shift</button>}
     {openShift&&<button className="primary-button" onClick={()=>run(async()=>{await post('record-sale',{outletId,shiftId:openShift.id,items:[{product,quantity:Number(qty),unit:'kg',unitPrice:Number(price)}],payments:[{method,amount:Number(qty)*Number(price)}]})})}><ShoppingCart size={15}/> Record sale</button>}
-    {openShift&&<button className="text-button" onClick={()=>run(async()=>{await post('close-shift',{shiftId:openShift.id,countedCash:openShift.expectedCash});setShiftId('')})}><CheckCircle2 size={15}/> Close shift</button>}
+    {openShift&&<button className="text-button" onClick={()=>run(async()=>{await post('close-shift',{shiftId:openShift.id,countedCash:openShift.expectedCash});})}><CheckCircle2 size={15}/> Close shift</button>}
    </div>
    {message&&<div className="info-note">{message}</div>}
   </section>
