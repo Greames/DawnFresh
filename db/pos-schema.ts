@@ -31,6 +31,7 @@ export const posSales = pgTable('pos_sales', {
   outletId: uuid('outlet_id').notNull().references(() => posOutlets.id),
   shiftId: uuid('shift_id').notNull().references(() => posShifts.id),
   billNumber: text('bill_number').notNull().unique(),
+  idempotencyKey: text('idempotency_key').unique(),
   customerId: uuid('customer_id').references(() => customers.id),
   cashierId: uuid('cashier_id').notNull().references(() => appUsers.id),
   subtotal: numeric('subtotal', { precision: 16, scale: 2 }).notNull().default('0'),
