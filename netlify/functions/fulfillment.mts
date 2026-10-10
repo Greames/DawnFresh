@@ -212,7 +212,11 @@ export default async (req: Request) => {
       if (!franchiseId || !franchiseAllowed(access, franchiseId)) return Response.json({ error: 'A valid franchise is required.' }, { status: 400, headers })
       const start = new Date(String(data.periodStart)), end = new Date(String(data.periodEnd))
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return Response.json({ error: 'Settlement period is invalid.' }, { status: 400, headers })
-      const [settlement] = await db.insert(settlementRecords).values({ franchiseId, periodStart: start, periodEnd: end, grossSales: String(num(data.grossSales)), collections: String(num(data.collections)), adjustments: String(num(data.adjustments)), amountDue: String(num(data.amountDue)), status: text(data.status, 40) || 'Open' }).returning()
+      const grossSales = num(data.grossSales, Number.NaN), collections = num(data.collections, Number.NaN), adjustments = num(data.adjustments)
+      if (!Number.isFinite(grossSales) || !Number.isFinite(collections) || !Number.isFinite(adjustments) || grossSales < 0 || collections < 0) return Response.json({ error: 'Settlement sales and collections must be valid non-negative amounts.' }, { status: 400, headers })
+      const amountDue = grossSales - collections + adjustments
+      const [settlement] = await db.insert(settlementRecords).values({ franchiseId, periodStart: start, periodEnd: end, grossSales: String(grossSales), collections: String(collections), adjustments: String(adjustments), amountDue: String(amountDue), status: 'Open' }).returning()
+      await db.insert(auditEvents).values({ actorUserId: actor, franchiseId, entityType: 'franchise_settlement', entityId: settlement.id, action: 'created', metadata: { periodStart: start.toISOString(), periodEnd: end.toISOString(), grossSales, collections, adjustments, amountDue } })
       return Response.json(settlement, { status: 201, headers })
     }
 
