@@ -57,13 +57,18 @@ export default async (req:Request)=>{
    const [po]=await db.select().from(purchaseOrders).where(eq(purchaseOrders.id,purchaseOrderId))
    if(!po||received<=0||accepted<0||rejected<0||accepted+rejected>received||!['Pending','Passed','Failed'].includes(qc))return Response.json({error:'Receipt quantities or QC status are invalid.'},{status:400,headers})
    if(qc==='Passed'&&accepted<=0)return Response.json({error:'A passed receipt must have accepted quantity.'},{status:400,headers})
+   const priorReceipts=await db.select().from(goodsReceipts).where(eq(goodsReceipts.purchaseOrderId,purchaseOrderId))
+   const alreadyReceived=priorReceipts.reduce((sum,row)=>sum+num(row.receivedQuantity),0)
+   if(alreadyReceived+received>num(po.quantity)+0.000001)return Response.json({error:'Receipt quantity exceeds the remaining purchase order quantity.'},{status:409,headers})
+   if(po.status==='Received')return Response.json({error:'This purchase order has already been fully received.'},{status:409,headers})
    const result=await db.transaction(async tx=>{
     const [receipt]=await tx.insert(goodsReceipts).values({purchaseOrderId,receivedQuantity:String(received),acceptedQuantity:String(accepted),rejectedQuantity:String(rejected),unit:po.unit,qcStatus:qc,batchCode:txt(data.batchCode,100)||`GRN-${Date.now()}`,receivedBy:actor}).returning()
     let lot=null
     if(qc==='Passed'&&accepted>0){
      ;[lot]=await tx.insert(stockLots).values({product:po.product,quantity:String(accepted),unit:po.unit,stage:'Finished stock',batchCode:receipt.batchCode,status:'Available'}).returning()
     }
-    await tx.update(purchaseOrders).set({status:'Received'}).where(eq(purchaseOrders.id,po.id))
+    const totalReceived=alreadyReceived+received
+    await tx.update(purchaseOrders).set({status:totalReceived+0.000001>=num(po.quantity)?'Received':'Partially Received'}).where(eq(purchaseOrders.id,po.id))
     await tx.insert(auditEvents).values({actorUserId:actor,entityType:'goods_receipt',entityId:receipt.id,action:'received',metadata:{purchaseOrderId,accepted,rejected,qcStatus:qc,stockLotId:lot?.id||null,supplyRequestId:po.supplyRequestId||null}})
     if(lot) await tx.update(goodsReceipts).set({stockLotId:lot.id}).where(eq(goodsReceipts.id,receipt.id))
     return {receipt,stockLot:lot}
@@ -103,7 +108,8 @@ export default async (req:Request)=>{
    const [grn]=await db.select().from(goodsReceipts).where(eq(goodsReceipts.id,goodsReceiptId))
    if(!request||request.kind!=='supply'||request.franchiseId!==franchiseId)return Response.json({error:'Supply request does not belong to this franchise.'},{status:400,headers})
    if(!po||po.supplyRequestId!==supplyRequestId)return Response.json({error:'Purchase Order is not linked to this Supply Request.'},{status:400,headers})
-   if(!grn||grn.purchaseOrderId!==purchaseOrderId||grn.qcStatus!=='Passed')return Response.json({error:'A passed GRN linked to this Purchase Order is required.'},{status:400,headers})
+   if(!po||po.product!==product)return Response.json({error:'The supplied product must match the Purchase Order product.'},{status:400,headers})
+   if(!grn||grn.purchaseOrderId!==purchaseOrderId||grn.qcStatus!=='Passed'||!grn.stockLotId)return Response.json({error:'A passed GRN with a finished-stock lot linked to this Purchase Order is required.'},{status:400,headers})
    if(request.data.status!=='Confirmed'&&request.data.status!=='Dispatched')return Response.json({error:'Supply Request must be Confirmed or Dispatched before franchise receipt.'},{status:400,headers})
    const result=await db.transaction(async tx=>{
     let remaining=quantity
