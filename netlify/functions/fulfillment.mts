@@ -90,21 +90,26 @@ export default async (req: Request) => {
     if (action === 'process-batch') {
       if (!allowed(access, 'processing', 'edit')) return Response.json({ error: 'Processing edit access is required.' }, { status: 403, headers })
       const productionOrderId = text(data.productionOrderId, 80)
-      const input = num(data.inputQuantity), output = num(data.outputQuantity), waste = num(data.wasteQuantity)
-      if (input <= 0 || output < 0 || waste < 0 || output + waste > input) return Response.json({ error: 'Input, output and waste quantities are invalid.' }, { status: 400, headers })
-      const [production] = await db.select().from(productionOrders).where(eq(productionOrders.id, productionOrderId))
-      if (!production || !franchiseAllowed(access, production.franchiseId)) return Response.json({ error: 'Production order not found.' }, { status: 404, headers })
-      if (production.status === 'Completed' || production.status === 'Rejected') return Response.json({ error: 'This production order is already finalized and cannot be processed again.' }, { status: 409, headers })
-      const [batch] = await db.insert(processingBatches).values({ productionOrderId, product: production.product, inputQuantity: String(input), outputQuantity: String(output), wasteQuantity: String(waste), unit: production.unit, status: data.qcStatus === 'Passed' ? 'Completed' : 'Quality Check', qcStatus: ['Pending','Passed','Failed'].includes(text(data.qcStatus,30)) ? text(data.qcStatus,30) : 'Pending', qcRemarks: text(data.qcRemarks) || null, processedAt: data.qcStatus === 'Passed' ? new Date() : undefined }).returning()
-      if (batch.qcStatus !== 'Pending') await db.insert(qcChecks).values({ processingBatchId: batch.id, status: batch.qcStatus, temperature: data.temperature === undefined ? null : String(num(data.temperature)), remarks: text(data.qcRemarks) || null, checkedBy: actor })
-      if (batch.qcStatus === 'Passed') {
-        await db.insert(stockLots).values({ product: batch.product, quantity: String(output), unit: batch.unit, sourceBatchId: batch.id, batchCode: text(data.batchCode, 100) || `FR-${Date.now()}`, status: 'Available' })
-        await db.update(productionOrders).set({ status: 'Completed', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
-      } else {
-        await db.update(productionOrders).set({ status: 'Quality Check', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
-      }
-      await db.insert(auditEvents).values({ actorUserId: actor, franchiseId: production.franchiseId, entityType: 'processing_batch', entityId: batch.id, action: 'processed', metadata: { productionOrderId, input, output, waste, yieldPct: input ? Number((output / input * 100).toFixed(2)) : 0 } })
-      return Response.json(batch, { status: 201, headers })
+      const input = num(data.inputQuantity, Number.NaN), output = num(data.outputQuantity, Number.NaN), waste = num(data.wasteQuantity, Number.NaN)
+      const qcStatus = ['Pending', 'Passed', 'Failed'].includes(text(data.qcStatus, 30)) ? text(data.qcStatus, 30) : 'Pending'
+      if (!Number.isFinite(input) || !Number.isFinite(output) || !Number.isFinite(waste) || input <= 0 || output < 0 || waste < 0 || output + waste > input) return Response.json({ error: 'Input, output and waste quantities are invalid.' }, { status: 400, headers })
+      const result = await db.transaction(async tx => {
+        const [production] = await tx.select().from(productionOrders).where(eq(productionOrders.id, productionOrderId)).for('update')
+        if (!production || !franchiseAllowed(access, production.franchiseId)) return { error: 'Production order not found.', status: 404 as const }
+        if (production.status !== 'Planned' && production.status !== 'Processing') return { error: 'This production order is already in quality check or finalized and cannot be processed again.', status: 409 as const }
+        const [batch] = await tx.insert(processingBatches).values({ productionOrderId, product: production.product, inputQuantity: String(input), outputQuantity: String(output), wasteQuantity: String(waste), unit: production.unit, status: qcStatus === 'Passed' ? 'Completed' : 'Quality Check', qcStatus, qcRemarks: text(data.qcRemarks) || null, processedAt: qcStatus === 'Passed' ? new Date() : undefined }).returning()
+        if (batch.qcStatus !== 'Pending') await tx.insert(qcChecks).values({ processingBatchId: batch.id, status: batch.qcStatus, temperature: data.temperature === undefined ? null : String(num(data.temperature)), remarks: text(data.qcRemarks) || null, checkedBy: actor })
+        if (batch.qcStatus === 'Passed') {
+          await tx.insert(stockLots).values({ product: batch.product, quantity: String(output), unit: batch.unit, sourceBatchId: batch.id, batchCode: text(data.batchCode, 100) || `FR-${Date.now()}`, status: 'Available' })
+          await tx.update(productionOrders).set({ status: 'Completed', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
+        } else {
+          await tx.update(productionOrders).set({ status: qcStatus === 'Failed' ? 'Rejected' : 'Quality Check', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
+        }
+        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: production.franchiseId, entityType: 'processing_batch', entityId: batch.id, action: 'processed', metadata: { productionOrderId, input, output, waste, yieldPct: input ? Number((output / input * 100).toFixed(2)) : 0 } })
+        return { batch }
+      })
+      if ('error' in result) return Response.json({ error: result.error }, { status: result.status, headers })
+      return Response.json(result.batch, { status: 201, headers })
     }
 
     if (action === 'create-package') {
