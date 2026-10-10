@@ -21,7 +21,7 @@ function text(value: unknown, max = 1000) {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
 }
 function franchiseAllowed(access: Awaited<ReturnType<typeof resolveAccess>>, franchiseId?: string | null) {
-  return access.role !== 'franchisee' || !franchiseId || access.franchise?.id === franchiseId
+  return access.role !== 'franchisee' || (!!franchiseId && access.franchise?.id === franchiseId)
 }
 
 export default async (req: Request) => {
@@ -43,7 +43,27 @@ export default async (req: Request) => {
         db.select().from(invoiceRecords).orderBy(desc(invoiceRecords.createdAt)),
       ])
       const visible = <T extends { franchiseId?: string | null }>(rows: T[]) => rows.filter(row => franchiseAllowed(access, row.franchiseId))
-      return Response.json({ production: visible(production), batches, lots, packages: packageRows, routes: visible(routes), stops, loads: loadRows, invoices }, { headers })
+      const visibleProduction = visible(production)
+      const visibleRoutes = visible(routes)
+      if (access.role === 'franchisee') {
+        const visibleOrders = await db.select().from(customerOrders).where(eq(customerOrders.franchiseId, access.franchise!.id))
+        const orderIds = new Set(visibleOrders.map(row => row.id))
+        const productionIds = new Set(visibleProduction.map(row => row.id))
+        const visibleBatches = batches.filter(row => !!row.productionOrderId && productionIds.has(row.productionOrderId))
+        const batchIds = new Set(visibleBatches.map(row => row.id))
+        const routeIds = new Set(visibleRoutes.map(row => row.id))
+        return Response.json({
+          production: visibleProduction,
+          batches: visibleBatches,
+          lots: lots.filter(row => !!row.sourceBatchId && batchIds.has(row.sourceBatchId)),
+          packages: packageRows.filter(row => orderIds.has(row.orderId)),
+          routes: visibleRoutes,
+          stops: stops.filter(row => routeIds.has(row.routeId) && orderIds.has(row.orderId)),
+          loads: loadRows.filter(row => routeIds.has(row.routeId)),
+          invoices: invoices.filter(row => !!row.orderId && orderIds.has(row.orderId)),
+        }, { headers })
+      }
+      return Response.json({ production: visibleProduction, batches, lots, packages: packageRows, routes: visibleRoutes, stops, loads: loadRows, invoices }, { headers })
     }
 
     if (!['POST', 'PATCH'].includes(req.method)) return new Response('Method not allowed', { status: 405, headers })
@@ -70,20 +90,26 @@ export default async (req: Request) => {
     if (action === 'process-batch') {
       if (!allowed(access, 'processing', 'edit')) return Response.json({ error: 'Processing edit access is required.' }, { status: 403, headers })
       const productionOrderId = text(data.productionOrderId, 80)
-      const input = num(data.inputQuantity), output = num(data.outputQuantity), waste = num(data.wasteQuantity)
-      if (input <= 0 || output < 0 || waste < 0 || output + waste > input) return Response.json({ error: 'Input, output and waste quantities are invalid.' }, { status: 400, headers })
-      const [production] = await db.select().from(productionOrders).where(eq(productionOrders.id, productionOrderId))
-      if (!production || !franchiseAllowed(access, production.franchiseId)) return Response.json({ error: 'Production order not found.' }, { status: 404, headers })
-      const [batch] = await db.insert(processingBatches).values({ productionOrderId, product: production.product, inputQuantity: String(input), outputQuantity: String(output), wasteQuantity: String(waste), unit: production.unit, status: data.qcStatus === 'Passed' ? 'Completed' : 'Quality Check', qcStatus: ['Pending','Passed','Failed'].includes(text(data.qcStatus,30)) ? text(data.qcStatus,30) : 'Pending', qcRemarks: text(data.qcRemarks) || null, processedAt: data.qcStatus === 'Passed' ? new Date() : undefined }).returning()
-      if (batch.qcStatus !== 'Pending') await db.insert(qcChecks).values({ processingBatchId: batch.id, status: batch.qcStatus, temperature: data.temperature === undefined ? null : String(num(data.temperature)), remarks: text(data.qcRemarks) || null, checkedBy: actor })
-      if (batch.qcStatus === 'Passed') {
-        await db.insert(stockLots).values({ product: batch.product, quantity: String(output), unit: batch.unit, sourceBatchId: batch.id, batchCode: text(data.batchCode, 100) || `FR-${Date.now()}`, status: 'Available' })
-        await db.update(productionOrders).set({ status: 'Completed', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
-      } else {
-        await db.update(productionOrders).set({ status: 'Quality Check', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
-      }
-      await db.insert(auditEvents).values({ actorUserId: actor, franchiseId: production.franchiseId, entityType: 'processing_batch', entityId: batch.id, action: 'processed', metadata: { productionOrderId, input, output, waste, yieldPct: input ? Number((output / input * 100).toFixed(2)) : 0 } })
-      return Response.json(batch, { status: 201, headers })
+      const input = num(data.inputQuantity, Number.NaN), output = num(data.outputQuantity, Number.NaN), waste = num(data.wasteQuantity, Number.NaN)
+      const qcStatus = ['Pending', 'Passed', 'Failed'].includes(text(data.qcStatus, 30)) ? text(data.qcStatus, 30) : 'Pending'
+      if (!Number.isFinite(input) || !Number.isFinite(output) || !Number.isFinite(waste) || input <= 0 || output < 0 || waste < 0 || output + waste > input) return Response.json({ error: 'Input, output and waste quantities are invalid.' }, { status: 400, headers })
+      const result = await db.transaction(async tx => {
+        const [production] = await tx.select().from(productionOrders).where(eq(productionOrders.id, productionOrderId)).for('update')
+        if (!production || !franchiseAllowed(access, production.franchiseId)) return { error: 'Production order not found.', status: 404 as const }
+        if (production.status !== 'Planned' && production.status !== 'Processing') return { error: 'This production order is already in quality check or finalized and cannot be processed again.', status: 409 as const }
+        const [batch] = await tx.insert(processingBatches).values({ productionOrderId, product: production.product, inputQuantity: String(input), outputQuantity: String(output), wasteQuantity: String(waste), unit: production.unit, status: qcStatus === 'Passed' ? 'Completed' : 'Quality Check', qcStatus, qcRemarks: text(data.qcRemarks) || null, processedAt: qcStatus === 'Passed' ? new Date() : undefined }).returning()
+        if (batch.qcStatus !== 'Pending') await tx.insert(qcChecks).values({ processingBatchId: batch.id, status: batch.qcStatus, temperature: data.temperature === undefined ? null : String(num(data.temperature)), remarks: text(data.qcRemarks) || null, checkedBy: actor })
+        if (batch.qcStatus === 'Passed') {
+          await tx.insert(stockLots).values({ product: batch.product, quantity: String(output), unit: batch.unit, sourceBatchId: batch.id, batchCode: text(data.batchCode, 100) || `FR-${Date.now()}`, status: 'Available' })
+          await tx.update(productionOrders).set({ status: 'Completed', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
+        } else {
+          await tx.update(productionOrders).set({ status: qcStatus === 'Failed' ? 'Rejected' : 'Quality Check', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
+        }
+        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: production.franchiseId, entityType: 'processing_batch', entityId: batch.id, action: 'processed', metadata: { productionOrderId, input, output, waste, yieldPct: input ? Number((output / input * 100).toFixed(2)) : 0 } })
+        return { batch }
+      })
+      if ('error' in result) return Response.json({ error: result.error }, { status: result.status, headers })
+      return Response.json(result.batch, { status: 201, headers })
     }
 
     if (action === 'create-package') {
@@ -128,6 +154,11 @@ export default async (req: Request) => {
       const [route] = await db.select().from(deliveryRoutes).where(eq(deliveryRoutes.id, routeId))
       const [pkg] = await db.select().from(packages).where(eq(packages.id, packageId))
       if (!route || !pkg || !franchiseAllowed(access, route.franchiseId)) return Response.json({ error: 'Route or package not found.' }, { status: 404, headers })
+      const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, pkg.orderId))
+      const [stop] = order ? await db.select().from(deliveryStops).where(and(eq(deliveryStops.routeId, routeId), eq(deliveryStops.orderId, order.id))) : []
+      if (!order || !stop || order.franchiseId !== route.franchiseId || !franchiseAllowed(access, order.franchiseId)) return Response.json({ error: 'Package is not assigned to a delivery stop on this route.' }, { status: 400, headers })
+      const [existingLoad] = await db.select().from(dispatchLoads).where(and(eq(dispatchLoads.routeId, routeId), eq(dispatchLoads.packageId, packageId)))
+      if (existingLoad) return Response.json({ error: 'This package is already scanned onto the route.' }, { status: 409, headers })
       const [load] = await db.insert(dispatchLoads).values({ routeId, packageId, scannedBy: actor, status: 'Loaded' }).returning()
       await db.update(packages).set({ status: 'Loaded' }).where(eq(packages.id, packageId))
       await db.update(deliveryRoutes).set({ status: 'Loaded', updatedAt: new Date() }).where(eq(deliveryRoutes.id, routeId))
@@ -139,6 +170,9 @@ export default async (req: Request) => {
       const stopId = text(data.stopId,80)
       const [stop] = await db.select().from(deliveryStops).where(eq(deliveryStops.id, stopId))
       if (!stop) return Response.json({ error: 'Delivery stop not found.' }, { status: 404, headers })
+      const [route] = await db.select().from(deliveryRoutes).where(eq(deliveryRoutes.id, stop.routeId))
+      const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, stop.orderId))
+      if (!route || !order || !franchiseAllowed(access, route.franchiseId) || route.franchiseId !== order.franchiseId) return Response.json({ error: 'Delivery stop not found or access denied.' }, { status: 404, headers })
       const [pod] = await db.insert(proofOfDelivery).values({ stopId, status: 'Delivered', recipientName: text(data.recipientName,180) || null, notes: text(data.notes) || null, photoUrl: text(data.photoUrl,2000) || null, signatureRef: text(data.signatureRef,500) || null }).onConflictDoUpdate({ target: proofOfDelivery.stopId, set: { status: 'Delivered', recipientName: text(data.recipientName,180) || null, notes: text(data.notes) || null, photoUrl: text(data.photoUrl,2000) || null, signatureRef: text(data.signatureRef,500) || null, deliveredAt: new Date() } }).returning()
       await db.update(deliveryStops).set({ status: 'Delivered', deliveredAt: new Date() }).where(eq(deliveryStops.id, stopId))
       await db.update(customerOrders).set({ status: 'Delivered', updatedAt: new Date() }).where(eq(customerOrders.id, stop.orderId))
@@ -178,12 +212,16 @@ export default async (req: Request) => {
     }
 
     if (action === 'create-settlement') {
-      if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Settlement edit access is required.' }, { status: 403, headers })
+      if (access.role === 'franchisee' || !allowed(access, 'orders', 'edit')) return Response.json({ error: 'Only authorized company staff can create franchise settlements.' }, { status: 403, headers })
       const franchiseId = text(data.franchiseId, 80)
       if (!franchiseId || !franchiseAllowed(access, franchiseId)) return Response.json({ error: 'A valid franchise is required.' }, { status: 400, headers })
       const start = new Date(String(data.periodStart)), end = new Date(String(data.periodEnd))
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return Response.json({ error: 'Settlement period is invalid.' }, { status: 400, headers })
-      const [settlement] = await db.insert(settlementRecords).values({ franchiseId, periodStart: start, periodEnd: end, grossSales: String(num(data.grossSales)), collections: String(num(data.collections)), adjustments: String(num(data.adjustments)), amountDue: String(num(data.amountDue)), status: text(data.status, 40) || 'Open' }).returning()
+      const grossSales = num(data.grossSales, Number.NaN), collections = num(data.collections, Number.NaN), adjustments = num(data.adjustments)
+      if (!Number.isFinite(grossSales) || !Number.isFinite(collections) || !Number.isFinite(adjustments) || grossSales < 0 || collections < 0) return Response.json({ error: 'Settlement sales and collections must be valid non-negative amounts.' }, { status: 400, headers })
+      const amountDue = grossSales - collections + adjustments
+      const [settlement] = await db.insert(settlementRecords).values({ franchiseId, periodStart: start, periodEnd: end, grossSales: String(grossSales), collections: String(collections), adjustments: String(adjustments), amountDue: String(amountDue), status: 'Open' }).returning()
+      await db.insert(auditEvents).values({ actorUserId: actor, franchiseId, entityType: 'franchise_settlement', entityId: settlement.id, action: 'created', metadata: { periodStart: start.toISOString(), periodEnd: end.toISOString(), grossSales, collections, adjustments, amountDue } })
       return Response.json(settlement, { status: 201, headers })
     }
 

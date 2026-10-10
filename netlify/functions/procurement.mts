@@ -24,7 +24,8 @@ export default async (req:Request)=>{
     db.select().from(supplierPayments).orderBy(desc(supplierPayments.paidAt)),
     db.select().from(franchiseStockLedger).orderBy(desc(franchiseStockLedger.createdAt)),
    ])
-   return Response.json({suppliers:supplierRows,purchaseOrders:poRows,goodsReceipts:receiptRows,supplierInvoices:invoiceRows,supplierPayments:paymentRows,franchiseStock:stockRows},{headers})
+   if(access.role==='franchisee') return Response.json({suppliers:[],purchaseOrders:[],goodsReceipts:[],supplierInvoices:[],supplierPayments:[],franchiseStock:stockRows.filter(row=>row.franchiseId===access.franchise?.id)},{headers})
+   return Response.json({suppliers:supplierRows,purchaseOrders:poRows,goodsReceipts:receiptRows, supplierInvoices:invoiceRows,supplierPayments:paymentRows,franchiseStock:stockRows},{headers})
   }
   if(!sameOrigin(req)||!['POST','PATCH'].includes(req.method))return new Response('Forbidden',{status:403,headers})
   const body=await req.json();const action=txt(body?.action,80);const data=body?.data&&typeof body.data==='object'?body.data:{}
@@ -57,44 +58,63 @@ export default async (req:Request)=>{
    const [po]=await db.select().from(purchaseOrders).where(eq(purchaseOrders.id,purchaseOrderId))
    if(!po||received<=0||accepted<0||rejected<0||accepted+rejected>received||!['Pending','Passed','Failed'].includes(qc))return Response.json({error:'Receipt quantities or QC status are invalid.'},{status:400,headers})
    if(qc==='Passed'&&accepted<=0)return Response.json({error:'A passed receipt must have accepted quantity.'},{status:400,headers})
+   const priorReceipts=await db.select().from(goodsReceipts).where(eq(goodsReceipts.purchaseOrderId,purchaseOrderId))
+   const alreadyReceived=priorReceipts.reduce((sum,row)=>sum+num(row.receivedQuantity),0)
+   if(alreadyReceived+received>num(po.quantity)+0.000001)return Response.json({error:'Receipt quantity exceeds the remaining purchase order quantity.'},{status:409,headers})
+   if(po.status==='Received')return Response.json({error:'This purchase order has already been fully received.'},{status:409,headers})
    const result=await db.transaction(async tx=>{
-    const [receipt]=await tx.insert(goodsReceipts).values({purchaseOrderId,receivedQuantity:String(received),acceptedQuantity:String(accepted),rejectedQuantity:String(rejected),unit:po.unit,qcStatus:qc,batchCode:txt(data.batchCode,100)||`GRN-${Date.now()}`,receivedBy:actor}).returning()
+    const [lockedPo]=await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id,purchaseOrderId)).for('update')
+    if(!lockedPo||lockedPo.status==='Received')return null
+    const lockedReceipts=await tx.select().from(goodsReceipts).where(eq(goodsReceipts.purchaseOrderId,purchaseOrderId))
+    const lockedReceived=lockedReceipts.reduce((sum,row)=>sum+num(row.receivedQuantity),0)
+    if(lockedReceived+received>num(lockedPo.quantity)+0.000001)return null
+    const [receipt]=await tx.insert(goodsReceipts).values({purchaseOrderId,receivedQuantity:String(received),acceptedQuantity:String(accepted),rejectedQuantity:String(rejected),unit:lockedPo.unit,qcStatus:qc,batchCode:txt(data.batchCode,100)||`GRN-${Date.now()}`,receivedBy:actor}).returning()
     let lot=null
     if(qc==='Passed'&&accepted>0){
-     ;[lot]=await tx.insert(stockLots).values({product:po.product,quantity:String(accepted),unit:po.unit,stage:'Finished stock',batchCode:receipt.batchCode,status:'Available'}).returning()
+     ;[lot]=await tx.insert(stockLots).values({product:lockedPo.product,quantity:String(accepted),unit:lockedPo.unit,stage:'Finished stock',batchCode:receipt.batchCode,status:'Available'}).returning()
     }
-    await tx.update(purchaseOrders).set({status:'Received'}).where(eq(purchaseOrders.id,po.id))
-    await tx.insert(auditEvents).values({actorUserId:actor,entityType:'goods_receipt',entityId:receipt.id,action:'received',metadata:{purchaseOrderId,accepted,rejected,qcStatus:qc,stockLotId:lot?.id||null,supplyRequestId:po.supplyRequestId||null}})
+    const totalReceived=lockedReceived+received
+    await tx.update(purchaseOrders).set({status:totalReceived+0.000001>=num(lockedPo.quantity)?'Received':'Partially Received'}).where(eq(purchaseOrders.id,lockedPo.id))
+    await tx.insert(auditEvents).values({actorUserId:actor,entityType:'goods_receipt',entityId:receipt.id,action:'received',metadata:{purchaseOrderId,accepted,rejected,qcStatus:qc,stockLotId:lot?.id||null,supplyRequestId:lockedPo.supplyRequestId||null}})
     if(lot) await tx.update(goodsReceipts).set({stockLotId:lot.id}).where(eq(goodsReceipts.id,receipt.id))
     return {receipt,stockLot:lot}
    })
+   if(!result)return Response.json({error:'Purchase order was fully received or the receipt exceeds its remaining quantity.'},{status:409,headers})
    return Response.json(result,{status:201,headers})
   }
 
   if(action==='create-supplier-invoice'){
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
-   const supplierId=txt(data.supplierId,80),total=num(data.total),invoiceNumber=txt(data.invoiceNumber,100)
-   if(!supplierId||total<0||!invoiceNumber)return Response.json({error:'Supplier, invoice number and total are required.'},{status:400,headers})
-   const [row]=await db.insert(supplierInvoices).values({supplierId,purchaseOrderId:data.purchaseOrderId?txt(data.purchaseOrderId,80):null,invoiceNumber,total:String(total),paid:'0',status:'Issued',dueAt:data.dueAt?new Date(String(data.dueAt)):undefined}).returning()
+   const supplierId=txt(data.supplierId,80),total=num(data.total,Number.NaN),invoiceNumber=txt(data.invoiceNumber,100)
+   const purchaseOrderId=data.purchaseOrderId?txt(data.purchaseOrderId,80):null
+   if(!supplierId||!Number.isFinite(total)||total<0||!invoiceNumber)return Response.json({error:'Supplier, invoice number and a valid non-negative total are required.'},{status:400,headers})
+   const [supplier]=await db.select().from(suppliers).where(eq(suppliers.id,supplierId))
+   if(!supplier)return Response.json({error:'Supplier not found.'},{status:404,headers})
+   if(purchaseOrderId){const [po]=await db.select().from(purchaseOrders).where(eq(purchaseOrders.id,purchaseOrderId));if(!po||po.supplierId!==supplierId)return Response.json({error:'Purchase order must belong to the selected supplier.'},{status:400,headers})}
+   const dueAt=data.dueAt?new Date(String(data.dueAt)):undefined
+   if(dueAt&&Number.isNaN(dueAt.getTime()))return Response.json({error:'Supplier invoice due date is invalid.'},{status:400,headers})
+   const [row]=await db.insert(supplierInvoices).values({supplierId,purchaseOrderId,invoiceNumber,total:String(total),paid:'0',status:'Issued',dueAt}).returning()
    return Response.json(row,{status:201,headers})
   }
 
   if(action==='pay-supplier'){
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
-   const invoiceId=txt(data.supplierInvoiceId,80),amount=num(data.amount),method=txt(data.method,40)||'Bank'
-   const [invoice]=await db.select().from(supplierInvoices).where(eq(supplierInvoices.id,invoiceId))
-   if(!invoice||amount<=0||num(invoice.paid)+amount>num(invoice.total)+0.01)return Response.json({error:'Payment exceeds supplier outstanding.'},{status:400,headers})
+   const invoiceId=txt(data.supplierInvoiceId,80),amount=num(data.amount,Number.NaN),method=txt(data.method,40)||'Bank'
+   if(!Number.isFinite(amount)||amount<=0)return Response.json({error:'Payment amount must be greater than zero.'},{status:400,headers})
    const result=await db.transaction(async tx=>{
+    const [invoice]=await tx.select().from(supplierInvoices).where(eq(supplierInvoices.id,invoiceId)).for('update')
+    if(!invoice||num(invoice.paid)+amount>num(invoice.total)+0.000001)return null
     const [payment]=await tx.insert(supplierPayments).values({supplierInvoiceId:invoiceId,amount:String(amount),method,reference:txt(data.reference,200)||null}).returning()
     const paid=num(invoice.paid)+amount,total=num(invoice.total)
     const [updated]=await tx.update(supplierInvoices).set({paid:String(paid),status:paid>=total?'Paid':'Partially Paid'}).where(eq(supplierInvoices.id,invoiceId)).returning()
     return {payment,invoice:updated}
    })
+   if(!result)return Response.json({error:'Supplier invoice not found or payment exceeds the remaining balance.'},{status:409,headers})
    return Response.json(result,{status:201,headers})
   }
 
   if(action==='transfer-to-franchise'){
-   if(!allowed(access,'supply','edit'))return Response.json({error:'Supply edit access is required.'},{status:403,headers})
+   if(access.role==='franchisee'||!allowed(access,'supply','edit'))return Response.json({error:'Only authorized company staff can transfer company stock to a franchise.'},{status:403,headers})
    const franchiseId=txt(data.franchiseId,80),product=txt(data.product,80),quantity=num(data.quantity),supplyRequestId=txt(data.supplyRequestId,80),purchaseOrderId=txt(data.purchaseOrderId,80),goodsReceiptId=txt(data.goodsReceiptId,80)
    const [franchise]=await db.select().from(franchises).where(eq(franchises.id,franchiseId))
    if(!franchise||!products.includes(product)||quantity<=0||!supplyRequestId||!purchaseOrderId||!goodsReceiptId)return Response.json({error:'Franchise, product, quantity, Supply Request ID, Purchase Order ID and GRN ID are required.'},{status:400,headers})
@@ -103,11 +123,15 @@ export default async (req:Request)=>{
    const [grn]=await db.select().from(goodsReceipts).where(eq(goodsReceipts.id,goodsReceiptId))
    if(!request||request.kind!=='supply'||request.franchiseId!==franchiseId)return Response.json({error:'Supply request does not belong to this franchise.'},{status:400,headers})
    if(!po||po.supplyRequestId!==supplyRequestId)return Response.json({error:'Purchase Order is not linked to this Supply Request.'},{status:400,headers})
-   if(!grn||grn.purchaseOrderId!==purchaseOrderId||grn.qcStatus!=='Passed')return Response.json({error:'A passed GRN linked to this Purchase Order is required.'},{status:400,headers})
+   if(!po||po.product!==product)return Response.json({error:'The supplied product must match the Purchase Order product.'},{status:400,headers})
+   if(!grn||grn.purchaseOrderId!==purchaseOrderId||grn.qcStatus!=='Passed'||!grn.stockLotId)return Response.json({error:'A passed GRN with a finished-stock lot linked to this Purchase Order is required.'},{status:400,headers})
    if(request.data.status!=='Confirmed'&&request.data.status!=='Dispatched')return Response.json({error:'Supply Request must be Confirmed or Dispatched before franchise receipt.'},{status:400,headers})
    const result=await db.transaction(async tx=>{
+    const [lockedRequest]=await tx.select().from(records).where(eq(records.id,supplyRequestId)).for('update')
+    if(!lockedRequest||lockedRequest.kind!=='supply'||lockedRequest.franchiseId!==franchiseId||
+       (lockedRequest.data.status!=='Confirmed'&&lockedRequest.data.status!=='Dispatched'))return null
     let remaining=quantity
-    const lots=await tx.select().from(stockLots).where(and(eq(stockLots.id,grn.stockLotId!),eq(stockLots.product,product),eq(stockLots.stage,'Finished stock'),eq(stockLots.status,'Available')))
+    const lots=await tx.select().from(stockLots).where(and(eq(stockLots.id,grn.stockLotId!),eq(stockLots.product,product),eq(stockLots.stage,'Finished stock'),eq(stockLots.status,'Available'))).for('update')
     const allocations:{id:string;qty:number}[]=[]
     for(const lot of lots){const available=Math.max(0,num(lot.quantity));if(available<=0)continue;const take=Math.min(available,remaining);allocations.push({id:lot.id,qty:take});remaining-=take;if(remaining<=0.000001)break}
     if(remaining>0.000001)throw new Error(`Insufficient company stock for ${product}.`)
@@ -124,11 +148,12 @@ export default async (req:Request)=>{
      const [row]=await tx.insert(franchiseStockLedger).values({franchiseId,product,stockLotId:lot.id,movementType:'SupplyIn',quantity:String(a.qty),referenceType:'FRANCHISE_SUPPLY',referenceId:supplyRequestId,supplyRequestId,purchaseOrderId,goodsReceiptId,balanceAfter:String(lastBalance),createdBy:actor}).returning()
      rows.push(row)
     }
-    await tx.update(records).set({data:{...request.data,status:'Delivered',deliveredQuantity:quantity,purchaseOrderId,goodsReceiptId,receivedAt:new Date().toISOString()}}).where(eq(records.id,supplyRequestId))
+    await tx.update(records).set({data:{...lockedRequest.data,status:'Delivered',deliveredQuantity:quantity,purchaseOrderId,goodsReceiptId,receivedAt:new Date().toISOString()}}).where(eq(records.id,supplyRequestId))
     await tx.insert(records).values({kind:'stock_movements',franchiseId,data:{name:`${product} received from company`,status:'Posted',date:new Date().toISOString().slice(0,10),product,quantity,unit:request.data.unit||'kg',reference:supplyRequestId,fromStage:'Finished stock',toStage:'Franchise stock',movementType:'SupplyIn',supplyRequestId,purchaseOrderId,goodsReceiptId}})
     await tx.insert(auditEvents).values({actorUserId:actor,franchiseId,entityType:'franchise_stock_supply',action:'received',metadata:{product,quantity,franchiseId,rows:rows.length,supplyRequestId,purchaseOrderId,goodsReceiptId}})
     return rows
    })
+   if(!result)return Response.json({error:'Supply request was already delivered or is no longer eligible for transfer.'},{status:409,headers})
    return Response.json({rows:result},{status:201,headers})
   }
 
