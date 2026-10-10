@@ -21,7 +21,7 @@ function text(value: unknown, max = 1000) {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
 }
 function franchiseAllowed(access: Awaited<ReturnType<typeof resolveAccess>>, franchiseId?: string | null) {
-  return access.role !== 'franchisee' || !franchiseId || access.franchise?.id === franchiseId
+  return access.role !== 'franchisee' || (!!franchiseId && access.franchise?.id === franchiseId)
 }
 
 export default async (req: Request) => {
@@ -74,6 +74,7 @@ export default async (req: Request) => {
       if (input <= 0 || output < 0 || waste < 0 || output + waste > input) return Response.json({ error: 'Input, output and waste quantities are invalid.' }, { status: 400, headers })
       const [production] = await db.select().from(productionOrders).where(eq(productionOrders.id, productionOrderId))
       if (!production || !franchiseAllowed(access, production.franchiseId)) return Response.json({ error: 'Production order not found.' }, { status: 404, headers })
+      if (production.status === 'Completed' || production.status === 'Rejected') return Response.json({ error: 'This production order is already finalized and cannot be processed again.' }, { status: 409, headers })
       const [batch] = await db.insert(processingBatches).values({ productionOrderId, product: production.product, inputQuantity: String(input), outputQuantity: String(output), wasteQuantity: String(waste), unit: production.unit, status: data.qcStatus === 'Passed' ? 'Completed' : 'Quality Check', qcStatus: ['Pending','Passed','Failed'].includes(text(data.qcStatus,30)) ? text(data.qcStatus,30) : 'Pending', qcRemarks: text(data.qcRemarks) || null, processedAt: data.qcStatus === 'Passed' ? new Date() : undefined }).returning()
       if (batch.qcStatus !== 'Pending') await db.insert(qcChecks).values({ processingBatchId: batch.id, status: batch.qcStatus, temperature: data.temperature === undefined ? null : String(num(data.temperature)), remarks: text(data.qcRemarks) || null, checkedBy: actor })
       if (batch.qcStatus === 'Passed') {
@@ -139,6 +140,9 @@ export default async (req: Request) => {
       const stopId = text(data.stopId,80)
       const [stop] = await db.select().from(deliveryStops).where(eq(deliveryStops.id, stopId))
       if (!stop) return Response.json({ error: 'Delivery stop not found.' }, { status: 404, headers })
+      const [route] = await db.select().from(deliveryRoutes).where(eq(deliveryRoutes.id, stop.routeId))
+      const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, stop.orderId))
+      if (!route || !order || !franchiseAllowed(access, route.franchiseId) || route.franchiseId !== order.franchiseId) return Response.json({ error: 'Delivery stop not found or access denied.' }, { status: 404, headers })
       const [pod] = await db.insert(proofOfDelivery).values({ stopId, status: 'Delivered', recipientName: text(data.recipientName,180) || null, notes: text(data.notes) || null, photoUrl: text(data.photoUrl,2000) || null, signatureRef: text(data.signatureRef,500) || null }).onConflictDoUpdate({ target: proofOfDelivery.stopId, set: { status: 'Delivered', recipientName: text(data.recipientName,180) || null, notes: text(data.notes) || null, photoUrl: text(data.photoUrl,2000) || null, signatureRef: text(data.signatureRef,500) || null, deliveredAt: new Date() } }).returning()
       await db.update(deliveryStops).set({ status: 'Delivered', deliveredAt: new Date() }).where(eq(deliveryStops.id, stopId))
       await db.update(customerOrders).set({ status: 'Delivered', updatedAt: new Date() }).where(eq(customerOrders.id, stop.orderId))
@@ -178,7 +182,7 @@ export default async (req: Request) => {
     }
 
     if (action === 'create-settlement') {
-      if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Settlement edit access is required.' }, { status: 403, headers })
+      if (access.role === 'franchisee' || !allowed(access, 'orders', 'edit')) return Response.json({ error: 'Only authorized company staff can create franchise settlements.' }, { status: 403, headers })
       const franchiseId = text(data.franchiseId, 80)
       if (!franchiseId || !franchiseAllowed(access, franchiseId)) return Response.json({ error: 'A valid franchise is required.' }, { status: 400, headers })
       const start = new Date(String(data.periodStart)), end = new Date(String(data.periodEnd))
