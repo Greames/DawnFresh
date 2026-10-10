@@ -85,23 +85,31 @@ export default async (req:Request)=>{
 
   if(action==='create-supplier-invoice'){
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
-   const supplierId=txt(data.supplierId,80),total=num(data.total),invoiceNumber=txt(data.invoiceNumber,100)
-   if(!supplierId||total<0||!invoiceNumber)return Response.json({error:'Supplier, invoice number and total are required.'},{status:400,headers})
-   const [row]=await db.insert(supplierInvoices).values({supplierId,purchaseOrderId:data.purchaseOrderId?txt(data.purchaseOrderId,80):null,invoiceNumber,total:String(total),paid:'0',status:'Issued',dueAt:data.dueAt?new Date(String(data.dueAt)):undefined}).returning()
+   const supplierId=txt(data.supplierId,80),total=num(data.total,Number.NaN),invoiceNumber=txt(data.invoiceNumber,100)
+   const purchaseOrderId=data.purchaseOrderId?txt(data.purchaseOrderId,80):null
+   if(!supplierId||!Number.isFinite(total)||total<0||!invoiceNumber)return Response.json({error:'Supplier, invoice number and a valid non-negative total are required.'},{status:400,headers})
+   const [supplier]=await db.select().from(suppliers).where(eq(suppliers.id,supplierId))
+   if(!supplier)return Response.json({error:'Supplier not found.'},{status:404,headers})
+   if(purchaseOrderId){const [po]=await db.select().from(purchaseOrders).where(eq(purchaseOrders.id,purchaseOrderId));if(!po||po.supplierId!==supplierId)return Response.json({error:'Purchase order must belong to the selected supplier.'},{status:400,headers})}
+   const dueAt=data.dueAt?new Date(String(data.dueAt)):undefined
+   if(dueAt&&Number.isNaN(dueAt.getTime()))return Response.json({error:'Supplier invoice due date is invalid.'},{status:400,headers})
+   const [row]=await db.insert(supplierInvoices).values({supplierId,purchaseOrderId,invoiceNumber,total:String(total),paid:'0',status:'Issued',dueAt}).returning()
    return Response.json(row,{status:201,headers})
   }
 
   if(action==='pay-supplier'){
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
-   const invoiceId=txt(data.supplierInvoiceId,80),amount=num(data.amount),method=txt(data.method,40)||'Bank'
-   const [invoice]=await db.select().from(supplierInvoices).where(eq(supplierInvoices.id,invoiceId))
-   if(!invoice||amount<=0||num(invoice.paid)+amount>num(invoice.total)+0.01)return Response.json({error:'Payment exceeds supplier outstanding.'},{status:400,headers})
+   const invoiceId=txt(data.supplierInvoiceId,80),amount=num(data.amount,Number.NaN),method=txt(data.method,40)||'Bank'
+   if(!Number.isFinite(amount)||amount<=0)return Response.json({error:'Payment amount must be greater than zero.'},{status:400,headers})
    const result=await db.transaction(async tx=>{
+    const [invoice]=await tx.select().from(supplierInvoices).where(eq(supplierInvoices.id,invoiceId)).for('update')
+    if(!invoice||num(invoice.paid)+amount>num(invoice.total)+0.000001)return null
     const [payment]=await tx.insert(supplierPayments).values({supplierInvoiceId:invoiceId,amount:String(amount),method,reference:txt(data.reference,200)||null}).returning()
     const paid=num(invoice.paid)+amount,total=num(invoice.total)
     const [updated]=await tx.update(supplierInvoices).set({paid:String(paid),status:paid>=total?'Paid':'Partially Paid'}).where(eq(supplierInvoices.id,invoiceId)).returning()
     return {payment,invoice:updated}
    })
+   if(!result)return Response.json({error:'Supplier invoice not found or payment exceeds the remaining balance.'},{status:409,headers})
    return Response.json(result,{status:201,headers})
   }
 
