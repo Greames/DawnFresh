@@ -43,7 +43,27 @@ export default async (req: Request) => {
         db.select().from(invoiceRecords).orderBy(desc(invoiceRecords.createdAt)),
       ])
       const visible = <T extends { franchiseId?: string | null }>(rows: T[]) => rows.filter(row => franchiseAllowed(access, row.franchiseId))
-      return Response.json({ production: visible(production), batches, lots, packages: packageRows, routes: visible(routes), stops, loads: loadRows, invoices }, { headers })
+      const visibleProduction = visible(production)
+      const visibleRoutes = visible(routes)
+      if (access.role === 'franchisee') {
+        const visibleOrders = await db.select().from(customerOrders).where(eq(customerOrders.franchiseId, access.franchise!.id))
+        const orderIds = new Set(visibleOrders.map(row => row.id))
+        const productionIds = new Set(visibleProduction.map(row => row.id))
+        const visibleBatches = batches.filter(row => !!row.productionOrderId && productionIds.has(row.productionOrderId))
+        const batchIds = new Set(visibleBatches.map(row => row.id))
+        const routeIds = new Set(visibleRoutes.map(row => row.id))
+        return Response.json({
+          production: visibleProduction,
+          batches: visibleBatches,
+          lots: lots.filter(row => !!row.sourceBatchId && batchIds.has(row.sourceBatchId)),
+          packages: packageRows.filter(row => orderIds.has(row.orderId)),
+          routes: visibleRoutes,
+          stops: stops.filter(row => routeIds.has(row.routeId) && orderIds.has(row.orderId)),
+          loads: loadRows.filter(row => routeIds.has(row.routeId)),
+          invoices: invoices.filter(row => !!row.orderId && orderIds.has(row.orderId)),
+        }, { headers })
+      }
+      return Response.json({ production: visibleProduction, batches, lots, packages: packageRows, routes: visibleRoutes, stops, loads: loadRows, invoices }, { headers })
     }
 
     if (!['POST', 'PATCH'].includes(req.method)) return new Response('Method not allowed', { status: 405, headers })
@@ -129,6 +149,11 @@ export default async (req: Request) => {
       const [route] = await db.select().from(deliveryRoutes).where(eq(deliveryRoutes.id, routeId))
       const [pkg] = await db.select().from(packages).where(eq(packages.id, packageId))
       if (!route || !pkg || !franchiseAllowed(access, route.franchiseId)) return Response.json({ error: 'Route or package not found.' }, { status: 404, headers })
+      const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, pkg.orderId))
+      const [stop] = order ? await db.select().from(deliveryStops).where(and(eq(deliveryStops.routeId, routeId), eq(deliveryStops.orderId, order.id))) : []
+      if (!order || !stop || order.franchiseId !== route.franchiseId || !franchiseAllowed(access, order.franchiseId)) return Response.json({ error: 'Package is not assigned to a delivery stop on this route.' }, { status: 400, headers })
+      const [existingLoad] = await db.select().from(dispatchLoads).where(and(eq(dispatchLoads.routeId, routeId), eq(dispatchLoads.packageId, packageId)))
+      if (existingLoad) return Response.json({ error: 'This package is already scanned onto the route.' }, { status: 409, headers })
       const [load] = await db.insert(dispatchLoads).values({ routeId, packageId, scannedBy: actor, status: 'Loaded' }).returning()
       await db.update(packages).set({ status: 'Loaded' }).where(eq(packages.id, packageId))
       await db.update(deliveryRoutes).set({ status: 'Loaded', updatedAt: new Date() }).where(eq(deliveryRoutes.id, routeId))
