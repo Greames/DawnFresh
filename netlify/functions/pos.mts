@@ -10,7 +10,7 @@ const methods = ['Cash', 'UPI', 'Card', 'Credit']
 const n = (v: unknown, d = 0) => { const x = Number(v); return Number.isFinite(x) ? x : d }
 const s = (v: unknown, m = 500) => typeof v === 'string' ? v.trim().slice(0, m) : ''
 const scope = (access: Awaited<ReturnType<typeof resolveAccess>>, franchiseId?: string | null) =>
-  access.role !== 'franchisee' || !franchiseId || access.franchise?.id === franchiseId
+  access.role !== 'franchisee' || (!!franchiseId && access.franchise?.id === franchiseId)
 
 const latestBalance = async (tx: any, outletId: string, product: string) => {
   const [last] = await tx.select().from(outletStockLedger)
@@ -80,19 +80,29 @@ export default async (req: Request) => {
       const outletId = s(data.outletId, 80), shiftId = s(data.shiftId, 80)
       const items = Array.isArray(data.items) ? data.items : []
       const idempotencyKey = s(data.idempotencyKey, 120) || null
-      if (idempotencyKey) {
-        const [existing] = await db.select().from(posSales).where(eq(posSales.idempotencyKey, idempotencyKey))
-        if (existing) return Response.json({ sale: existing, replayed: true }, { headers })
-      }
       const [outlet] = await db.select().from(posOutlets).where(eq(posOutlets.id, outletId))
       const [shift] = await db.select().from(posShifts).where(eq(posShifts.id, shiftId))
       if (!outlet || !shift || shift.outletId !== outletId || shift.status !== 'Open' || !scope(access, outlet.franchiseId)) return Response.json({ error: 'Open outlet shift is required.' }, { status: 400, headers })
+      if (idempotencyKey) {
+        const [existing] = await db.select().from(posSales).where(eq(posSales.idempotencyKey, idempotencyKey))
+        if (existing) {
+          if (existing.outletId !== outletId || !scope(access, outlet.franchiseId)) return Response.json({ error: 'Idempotency key is already used by another outlet.' }, { status: 409, headers })
+          return Response.json({ sale: existing, replayed: true }, { headers })
+        }
+      }
       if (!items.length) return Response.json({ error: 'At least one sale item is required.' }, { status: 400, headers })
 
       const requestedByProduct = new Map<string, number>()
       for (const item of items) {
         const product = s(item.product, 80), qty = n(item.quantity)
-        if (!products.includes(product) || qty <= 0) return Response.json({ error: 'Invalid sale item.' }, { status: 400, headers })
+        const unitPrice = n(item.unitPrice, Number.NaN)
+        const itemDiscount = n(item.discount), itemTax = n(item.tax)
+        if (!products.includes(product) || !Number.isFinite(qty) || qty <= 0 ||
+            !Number.isFinite(unitPrice) || unitPrice < 0 ||
+            !Number.isFinite(itemDiscount) || itemDiscount < 0 || itemDiscount > qty * unitPrice ||
+            !Number.isFinite(itemTax) || itemTax < 0) {
+          return Response.json({ error: 'Sale items require a valid product, positive quantity, non-negative price/tax, and a discount within the line value.' }, { status: 400, headers })
+        }
         requestedByProduct.set(product, (requestedByProduct.get(product) || 0) + qty)
       }
       const subtotal = items.reduce((a: number, i: any) => a + n(i.quantity) * n(i.unitPrice), 0)
@@ -217,7 +227,9 @@ export default async (req: Request) => {
       const saleId = s(data.saleId, 80), itemId = s(data.itemId, 80), qty = n(data.quantity)
       const [sale] = await db.select().from(posSales).where(eq(posSales.id, saleId))
       const [item] = await db.select().from(posSaleItems).where(eq(posSaleItems.id, itemId))
-      if (!sale || !item || item.saleId !== sale.id || qty <= 0) return Response.json({ error: 'Invalid return request.' }, { status: 400, headers })
+      const [saleOutlet] = sale ? await db.select().from(posOutlets).where(eq(posOutlets.id, sale.outletId)) : []
+      if (!sale || !item || item.saleId !== sale.id || !saleOutlet || !scope(access, saleOutlet.franchiseId)) return Response.json({ error: 'Sale not found or access denied.' }, { status: 404, headers })
+      if (!Number.isFinite(qty) || qty <= 0) return Response.json({ error: 'Return quantity must be greater than zero.' }, { status: 400, headers })
       const previous = await db.select().from(posReturns).where(eq(posReturns.itemId, itemId))
       const alreadyReturned = previous.reduce((a, r) => a + n(r.quantity), 0)
       if (alreadyReturned + qty > n(item.quantity) + 0.000001) return Response.json({ error: 'Return quantity exceeds the remaining sold quantity.' }, { status: 400, headers })
@@ -246,7 +258,7 @@ export default async (req: Request) => {
           })
         }
         await tx.insert(auditEvents).values({
-          actorUserId: actor, franchiseId: undefined, entityType: 'pos_return', entityId: ret.id,
+          actorUserId: actor, franchiseId: saleOutlet.franchiseId, entityType: 'pos_return', entityId: ret.id,
           action: 'created', metadata: { saleId, itemId, quantity: qty, refundAmount, refundMethod },
         })
         return { return: ret, refundAmount }
