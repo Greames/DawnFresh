@@ -1,0 +1,18 @@
+call_id,call_date,caller,vendor,category,product,quoted_rate_inr,unit,rate_basis,moq,daily_capacity,delivery_to_proddatur,payment_terms,licences_seen,notes,follow_up_date,lead_status
+C001,,,Menaka Chicken Wholesale & Retails (Kadapa; UNVERIFIED lead),Broiler chicken,Live broiler,,kg live,,,,,,,,,PLANNED
+C002,,,Menaka Chicken Wholesale & Retails (Kadapa; UNVERIFIED lead),Broiler chicken,Dressed skinless,,kg dressed,,,,,,,,,PLANNED
+C003,,,Satyanarayana Food Solutions (location unknown; UNVERIFIED lead),Fish,,,kg,,,,,,,,,PLANNED
+C004,,,Satyanarayana Food Solutions (location unknown; UNVERIFIED lead),Prawns,,,kg per count,,,,,,,,,PLANNED
+C005,,,Aum Traders (Chennai; UNVERIFIED lead),Prawns,,,kg per count,,,,,,,,,PLANNED
+C006,,,Aum Traders (Chennai; UNVERIFIED lead),Fish,,,kg,,,,,,,,,PLANNED
+C007,,,Vkings (Krishna district; UNVERIFIED lead; confirm it sells eggs),Eggs,Eggs,,tray of 30,,,,,,,,,PLANNED
+C008,,,Surakhsha Transport Systems (Coimbatore; UNVERIFIED lead),Reefer vehicle,Insulated/reefer body on small commercial vehicle,,per vehicle body,,,,,,,,,PLANNED
+C009,,,Konvekta Refrigeration India (UNVERIFIED lead),Cold-chain equipment,Reefer unit and nearest service/body builder,,per unit,,,,,,,,,PLANNED
+C010,,,Sun Packaging (New Delhi; UNVERIFIED lead),Packaging,Vacuum/meat pouch,,per piece,,,,,,,,,PLANNED
+C011,,,Saurabh Plastvac (Ahmedabad; UNVERIFIED lead),Packaging,High-barrier vacuum pouch,,per piece,,,,,,,,,PLANNED
+C012,,,[local lead found by human: market/trader/butcher referral],Mutton,Goat carcass,,kg dressed,,,,,,,,,TO_BE_FOUND
+C013,,,[local lead: municipal or licensed slaughter option],Mutton,Slaughter service,,per head or kg,,,,,,,,,TO_BE_FOUND
+C014,,,[local lead],Eggs,Eggs,,tray of 30,,,,,,,,,TO_BE_FOUND
+C015,,,[local lead],Broiler chicken,,,kg,,,,,,,,,TO_BE_FOUND
+C016,,,[local lead],Fish,,,kg,,,,,,,,,TO_BE_FOUND
+C017,,,[local lead],Cold-chain equipment,Walk-in cold room 10x10x8 ft,,per unit,,,,,,,,,TO_BE_FOUND
