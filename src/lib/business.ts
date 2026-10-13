@@ -106,6 +106,9 @@ export function resolvePermissions(role: Role, stored: Partial<Record<string, un
     if (!roleModules[role].includes(id)) return [id, 'none']
     const value = stored[id]
     if (value === 'none' || value === 'view' || value === 'edit') return [id, value]
+    // POS used to be gated by the outlets module: staff with no explicit POS setting keep their outlets level.
+    const legacy = stored.outlets
+    if (id === 'pos' && role === 'staff' && (legacy === 'none' || legacy === 'view' || legacy === 'edit')) return [id, legacy]
     return [id, role === 'staff' && id === 'franchises' ? 'view' : 'edit']
   })) as Permissions
 }

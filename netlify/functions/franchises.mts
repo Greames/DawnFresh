@@ -64,7 +64,7 @@ export default async (req: Request) => {
         name: data.name,
         role: 'franchisee',
         franchiseId: created.id,
-        permissions: { orders: 'edit', leads: 'edit', supply: 'edit', inventory: 'view', sourcing: 'none', outlets: 'none', franchises: 'none' },
+        permissions: { orders: 'edit', leads: 'edit', supply: 'edit', inventory: 'view', sourcing: 'none', outlets: 'none', pos: 'edit', franchises: 'none' },
         status: 'Active',
         passwordHash: null,
       }).returning({ id: appUsers.id })

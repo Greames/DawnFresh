@@ -32,6 +32,7 @@ export default async (req:Request)=>{
   const actor=access.account.id
 
   if(action==='create-supplier'){
+   if(access.role==='franchisee')return Response.json({error:'This procurement action is controlled by the company.'},{status:403,headers})
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
    if(!txt(data.name,180))return Response.json({error:'Supplier name is required.'},{status:400,headers})
    const [row]=await db.insert(suppliers).values({name:txt(data.name,180),phone:txt(data.phone,30)||null,email:txt(data.email,180)||null,status:txt(data.status,30)||'Active'}).returning()
@@ -39,6 +40,7 @@ export default async (req:Request)=>{
   }
 
   if(action==='create-po'){
+   if(access.role==='franchisee')return Response.json({error:'This procurement action is controlled by the company.'},{status:403,headers})
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
    const supplierId=txt(data.supplierId,80),product=txt(data.product,80),quantity=num(data.quantity),unit=txt(data.unit,30)||'kg',unitPrice=num(data.unitPrice),supplyRequestId=txt(data.supplyRequestId,80)
    const [supplier]=await db.select().from(suppliers).where(eq(suppliers.id,supplierId))
@@ -53,6 +55,7 @@ export default async (req:Request)=>{
   }
 
   if(action==='receive-po'){
+   if(access.role==='franchisee')return Response.json({error:'This procurement action is controlled by the company.'},{status:403,headers})
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
    const purchaseOrderId=txt(data.purchaseOrderId,80),received=num(data.receivedQuantity),accepted=num(data.acceptedQuantity),rejected=num(data.rejectedQuantity),qc=txt(data.qcStatus,30)||'Pending'
    const [po]=await db.select().from(purchaseOrders).where(eq(purchaseOrders.id,purchaseOrderId))
@@ -84,6 +87,7 @@ export default async (req:Request)=>{
   }
 
   if(action==='create-supplier-invoice'){
+   if(access.role==='franchisee')return Response.json({error:'This procurement action is controlled by the company.'},{status:403,headers})
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
    const supplierId=txt(data.supplierId,80),total=num(data.total,Number.NaN),invoiceNumber=txt(data.invoiceNumber,100)
    const purchaseOrderId=data.purchaseOrderId?txt(data.purchaseOrderId,80):null
@@ -98,6 +102,7 @@ export default async (req:Request)=>{
   }
 
   if(action==='pay-supplier'){
+   if(access.role==='franchisee')return Response.json({error:'This procurement action is controlled by the company.'},{status:403,headers})
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
    const invoiceId=txt(data.supplierInvoiceId,80),amount=num(data.amount,Number.NaN),method=txt(data.method,40)||'Bank'
    if(!Number.isFinite(amount)||amount<=0)return Response.json({error:'Payment amount must be greater than zero.'},{status:400,headers})

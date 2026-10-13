@@ -8,6 +8,7 @@ import { resolveAccess, sameOrigin } from '../../db/access.js'
 export const config: Config = { path: '/api/pricing' }
 const products = ['Chicken','Mutton','Eggs','Fish','Prawns']
 const statuses = ['Draft','Active','Archived']
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function num(v: unknown, min=0, max=1e9) {
   const n=Number(v); return Number.isFinite(n)&&n>=min&&n<=max?n:null
@@ -57,13 +58,18 @@ export default async (req:Request)=>{
   if(b.action==='create-config'){
    const i=inputs(b)
    if(!i||!products.includes(String(b.product))||!b.supplierName||!b.effectiveFrom)return Response.json({error:'Complete the pricing configuration.'},{status:400,headers})
+   const franchiseId=b.franchiseId?String(b.franchiseId):null
+   if(franchiseId){
+    const [franchise]=uuidPattern.test(franchiseId)?await db.select({id:franchises.id}).from(franchises).where(eq(franchises.id,franchiseId)):[]
+    if(!franchise)return Response.json({error:'Franchise not found.'},{status:400,headers})
+   }
    const existing=await db.select().from(pricingConfigs).where(and(eq(pricingConfigs.product,String(b.product)),eq(pricingConfigs.processingType,String(b.processingType||'Standard')))).orderBy(desc(pricingConfigs.version))
    const version=(existing[0]?.version||0)+1
-   const [row]=await db.insert(pricingConfigs).values({product:String(b.product),processingType:String(b.processingType||'Standard'),supplierName:String(b.supplierName).slice(0,180),supplierPricePerKg:String(i.supplierPricePerKg),standardYieldPct:String(i.standardYieldPct),logisticsCostPerKg:String(i.logisticsCostPerKg),otherCostPerKg:String(i.otherCostPerKg),companyPricePerKg:String(i.companyPricePerKg),franchiseId:b.franchiseId||null,effectiveFrom:new Date(b.effectiveFrom),effectiveTo:b.effectiveTo?new Date(b.effectiveTo):null,version,status:statuses.includes(String(b.status))?String(b.status):'Draft',notes:b.notes?String(b.notes).slice(0,1000):null,createdBy:access.account.id}).returning()
+   const [row]=await db.insert(pricingConfigs).values({product:String(b.product),processingType:String(b.processingType||'Standard'),supplierName:String(b.supplierName).slice(0,180),supplierPricePerKg:String(i.supplierPricePerKg),standardYieldPct:String(i.standardYieldPct),logisticsCostPerKg:String(i.logisticsCostPerKg),otherCostPerKg:String(i.otherCostPerKg),companyPricePerKg:String(i.companyPricePerKg),franchiseId,effectiveFrom:new Date(b.effectiveFrom),effectiveTo:b.effectiveTo?new Date(b.effectiveTo):null,version,status:statuses.includes(String(b.status))?String(b.status):'Draft',notes:b.notes?String(b.notes).slice(0,1000):null,createdBy:access.account.id}).returning()
    return Response.json({config:row},{headers})
   }
   if(b.action==='activate-config'){
-   const [row]=await db.select().from(pricingConfigs).where(eq(pricingConfigs.id,String(b.id)))
+   const [row]=uuidPattern.test(String(b.id))?await db.select().from(pricingConfigs).where(eq(pricingConfigs.id,String(b.id))):[]
    if(!row)return Response.json({error:'Pricing configuration not found.'},{status:404,headers})
    await db.update(pricingConfigs).set({status:'Archived',effectiveTo:new Date()}).where(and(eq(pricingConfigs.product,row.product),eq(pricingConfigs.processingType,row.processingType),eq(pricingConfigs.status,'Active')))
    const [updated]=await db.update(pricingConfigs).set({status:'Active'}).where(eq(pricingConfigs.id,row.id)).returning()
@@ -72,9 +78,10 @@ export default async (req:Request)=>{
   if(b.action==='snapshot-order'){
    const orderId=String(b.orderId), configId=String(b.pricingConfigId), live=num(b.liveWeightKg,.001)
    if(!orderId||!configId||live===null)return Response.json({error:'Order, pricing configuration and live weight are required.'},{status:400,headers})
-   const [configRow]=await db.select().from(pricingConfigs).where(eq(pricingConfigs.id,configId))
-   const [order]=await db.select().from(customerOrders).where(eq(customerOrders.id,orderId))
+   const [configRow]=uuidPattern.test(configId)?await db.select().from(pricingConfigs).where(eq(pricingConfigs.id,configId)):[]
+   const [order]=uuidPattern.test(orderId)?await db.select().from(customerOrders).where(eq(customerOrders.id,orderId)):[]
    if(!configRow||!order)return Response.json({error:'Order or pricing configuration not found.'},{status:404,headers})
+   if(configRow.franchiseId&&configRow.franchiseId!==order.franchiseId)return Response.json({error:'This pricing configuration belongs to a different franchise than the order.'},{status:409,headers})
    const r=calculate({liveWeightKg:live!,supplierPricePerKg:Number(configRow.supplierPricePerKg),standardYieldPct:Number(configRow.standardYieldPct),logisticsCostPerKg:Number(configRow.logisticsCostPerKg),otherCostPerKg:Number(configRow.otherCostPerKg),companyPricePerKg:Number(configRow.companyPricePerKg)})
    const snapshot={configId:configRow.id,version:configRow.version,product:configRow.product,processingType:configRow.processingType,supplierName:configRow.supplierName,supplierPricePerKg:Number(configRow.supplierPricePerKg),standardYieldPct:Number(configRow.standardYieldPct),logisticsCostPerKg:Number(configRow.logisticsCostPerKg),otherCostPerKg:Number(configRow.otherCostPerKg),companyPricePerKg:Number(configRow.companyPricePerKg),effectiveFrom:configRow.effectiveFrom.toISOString(),calculated:r}
    const [row]=await db.insert(orderPricingSnapshots).values({orderId,pricingConfigId:configId,liveWeightKg:String(live),billableWeightKg:String(r.billableWeightKg),snapshot}).onConflictDoUpdate({target:orderPricingSnapshots.orderId,set:{pricingConfigId:configId,liveWeightKg:String(live),billableWeightKg:String(r.billableWeightKg),snapshot}}).returning()
