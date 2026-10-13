@@ -164,11 +164,10 @@ describe('fulfilment and operations audit actors (#6)', () => {
     assert.equal(qc.checkedBy, fa.user.id)
   })
 
-  it('duplicate franchise settlement for the same period returns 409', async () => {
+  it('the legacy manual settlement action is retired (settlements are derived in wave 3)', async () => {
     const body = { action: 'create-settlement', data: { franchiseId: franchiseA.id, periodStart: '2026-10-01', periodEnd: '2026-10-07', grossSales: 100, collections: 40 } }
-    assert.equal((await call(fulfillment, staff, body)).status, 201)
-    assert.equal((await call(fulfillment, staff, body)).status, 409)
-    assert.equal((await call(fulfillment, fa, body)).status, 403)
+    assert.equal((await call(fulfillment, staff, body)).status, 410)
+    assert.equal((await call(fulfillment, fa, body)).status, 403, 'a franchisee is refused before the retirement notice')
   })
 })
 
@@ -250,6 +249,7 @@ describe('database constraints (#8)', () => {
     await assert.rejects(pool.query(sqlText), (e: any) => e.code === code)
   }
   it('enforces one settlement per franchise and period, one reconciliation per shift', async () => {
+    await pool.query(`INSERT INTO settlement_records (franchise_id, period_start, period_end) VALUES ('${franchiseA.id}', '2026-10-01', '2026-10-07')`)
     await rejects(`INSERT INTO settlement_records (franchise_id, period_start, period_end) VALUES ('${franchiseA.id}', '2026-10-01', '2026-10-07')`, '23505')
     const [rec] = await db.select().from(posReconciliations)
     await rejects(`INSERT INTO pos_reconciliations (outlet_id, shift_id, business_date) VALUES ('${rec.outletId}', '${rec.shiftId}', now())`, '23505')

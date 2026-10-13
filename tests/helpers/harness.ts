@@ -38,10 +38,10 @@ export async function createFranchise(name: string, email: string, latitude = 14
 
 export type Actor = { user: typeof appUsers.$inferSelect; cookie: string }
 
-export async function call(handler: (req: Request) => Promise<Response>, actor: Actor | null, body?: unknown, method = body === undefined ? 'GET' : 'POST') {
+export async function call(handler: (req: Request) => Promise<Response>, actor: Actor | null, body?: unknown, method = body === undefined ? 'GET' : 'POST', query = '') {
   const headers: Record<string, string> = { origin: 'http://localhost', 'content-type': 'application/json' }
   if (actor) headers.cookie = actor.cookie
-  const res = await handler(new Request('http://localhost/api/test', { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }))
+  const res = await handler(new Request(`http://localhost/api/test${query}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }))
   const text = await res.text()
   let json: any = null
   try { json = JSON.parse(text) } catch { /* not JSON */ }

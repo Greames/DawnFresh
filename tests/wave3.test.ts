@@ -4,23 +4,31 @@ import { and, eq } from 'drizzle-orm'
 import { db, pool } from './helpers/test-db.js'
 import { call, createFranchise, createUser, resetDatabase, seedPrices } from './helpers/harness.js'
 import type { Actor } from './helpers/harness.js'
-import { auditEvents, customers, invoiceRecords, stockLots } from '../db/schema.js'
+import { auditEvents, customers, invoiceRecords, records, settlementAdjustments, settlementPayments, settlementRecords, stockLots } from '../db/schema.js'
 import { pricingConfigs } from '../db/pricing-schema.js'
-import { customerReceivables, posSales, posShifts, receivablePayments } from '../db/pos-schema.js'
+import { customerReceivables, outletStockLedger, posSales, posShifts, receivablePayments } from '../db/pos-schema.js'
 import pos from '../netlify/functions/pos.mts'
+import procurement from '../netlify/functions/procurement.mts'
+import operations from '../netlify/functions/operations.mts'
+import fulfillment from '../netlify/functions/fulfillment.mts'
+import settlements from '../netlify/functions/settlements.mts'
+import { businessDateOf } from '../src/lib/business.js'
 
-let staff: Actor, fa: Actor, fb: Actor
+let supplierId: string
+let admin: Actor, staff: Actor, fa: Actor, fb: Actor
 let franchiseA: { id: string }, franchiseB: { id: string }
 let codeSeq = 0
 
 before(async () => {
   await resetDatabase()
   await seedPrices()
+  admin = await createUser('admin', 'admin@w3.local')
   staff = await createUser('staff', 'staff@w3.local')
   franchiseA = await createFranchise('Franchise A', 'a@w3.local')
   franchiseB = await createFranchise('Franchise B', 'b@w3.local')
   fa = await createUser('franchisee', 'fa@w3.local', { franchiseId: franchiseA.id })
   fb = await createUser('franchisee', 'fb@w3.local', { franchiseId: franchiseB.id })
+  supplierId = (await call(procurement, staff, { action: 'create-supplier', data: { name: 'Farm Co' } })).json.id
   // Mutton: customers pay 200 per kg with 5% tax.
   await db.update(pricingConfigs).set({ customerPricePerKg: '200', taxRatePct: '5' }).where(eq(pricingConfigs.product, 'Mutton'))
 })
@@ -207,5 +215,175 @@ describe('open-shift double open (#11 follow-up)', () => {
     const open = results.find(r => r.status === 201)!.json
     assert.equal((await call(pos, fa, { action: 'close-shift', data: { shiftId: open.id, countedCash: 0 } })).status, 201)
     await openShift(fa, outlet.id) // a new shift can open after the close
+  })
+})
+
+// ---- Supply chain helpers: request -> PO -> GRN -> transfer to a franchise outlet, priced at the company price. ----
+const supplyChain = async (actor: Actor, quantity: number) => {
+  const req = await call(operations, actor, { kind: 'supply', data: { name: 'x', status: 'Requested', product: 'Chicken', quantity, unit: 'kg', amount: 0, paid: 0 } })
+  assert.equal(req.status, 201, JSON.stringify(req.json))
+  const po = await call(procurement, staff, { action: 'create-po', data: { supplierId, product: 'Chicken', quantity, unitPrice: 50, supplyRequestId: req.json.id } })
+  const grn = await call(procurement, staff, { action: 'receive-po', data: { purchaseOrderId: po.json.id, receivedQuantity: quantity, acceptedQuantity: quantity, rejectedQuantity: 0, qcStatus: 'Passed' } })
+  assert.equal(grn.status, 201, JSON.stringify(grn.json))
+  return { requestId: req.json.id as string, poId: po.json.id as string, grnId: grn.json.receipt.id as string }
+}
+const deliver = async (chain: { requestId: string; poId: string; grnId: string }, franchiseId: string, quantity: number, outletId?: string) => {
+  const res = await call(procurement, staff, { action: 'transfer-to-franchise', data: { franchiseId, product: 'Chicken', quantity, supplyRequestId: chain.requestId, purchaseOrderId: chain.poId, goodsReceiptId: chain.grnId, outletId } })
+  assert.equal(res.status, 201, JSON.stringify(res.json))
+  return res.json.rows[0] as { stockLotId: string; unitCost: string }
+}
+const today = () => businessDateOf(new Date())
+const shiftDay = (date: string, days: number) => new Date(new Date(`${date}T00:00:00Z`).getTime() + days * 86_400_000).toISOString().slice(0, 10)
+const settle = (actor: Actor, data: Record<string, unknown>, idempotencyKey?: string) => call(settlements, actor, { action: 'create-settlement', idempotencyKey, data })
+const settlePay = (actor: Actor, settlementId: string, amount: number, idempotencyKey?: string) => call(settlements, actor, { action: 'record-settlement-payment', idempotencyKey, data: { settlementId, amount, method: 'Bank' } })
+const preview = (actor: Actor, franchiseId: string, from: string, to: string) => call(settlements, actor, undefined, 'GET', `?franchiseId=${franchiseId}&from=${from}&to=${to}`)
+
+describe('derived franchise settlement (#13)', () => {
+  let outlet: { id: string }, shift: { id: string }, childLot: string, settlement: any
+  let franchiseS: { id: string }, fsx: Actor
+  before(async () => {
+    franchiseS = await createFranchise('Franchise S', 's@w3.local')
+    fsx = await createUser('franchisee', 'fs@w3.local', { franchiseId: franchiseS.id })
+  })
+  const to = today(), from = shiftDay(today(), -2)
+
+  it('derives the amount from supply, returns and adjustments, and ignores any client figure', async () => {
+    outlet = await newOutlet(fsx, franchiseS.id)
+    shift = await openShift(fsx, outlet.id)
+    const c1 = await supplyChain(fsx, 10), c2 = await supplyChain(fsx, 5)
+    const row1 = await deliver(c1, franchiseS.id, 10, outlet.id)
+    await deliver(c2, franchiseS.id, 5, outlet.id)
+    childLot = row1.stockLotId
+    assert.equal(Number(row1.unitCost), 60, 'the child lot carries the company price at transfer')
+
+    // Return 2 kg of the first lot to the company: 2 x 60 = 120.
+    assert.equal((await call(pos, fsx, { action: 'return-supply', data: { outletId: outlet.id, stockLotId: childLot, quantity: 2 } })).status, 400, 'a reason is mandatory')
+    const back = await call(pos, fsx, { action: 'return-supply', idempotencyKey: 'rs-1', data: { outletId: outlet.id, stockLotId: childLot, quantity: 2, reason: 'Wrong cut' } })
+    assert.equal(back.status, 201, JSON.stringify(back.json))
+    assert.equal(back.json.value, 120)
+    assert.equal((await call(pos, fsx, { action: 'return-supply', idempotencyKey: 'rs-1', data: { outletId: outlet.id, stockLotId: childLot, quantity: 2, reason: 'Wrong cut' } })).json.replayed, true)
+    const [ledgerRow] = await db.select().from(outletStockLedger).where(eq(outletStockLedger.id, back.json.ledgerId))
+    assert.equal(ledgerRow.movementType, 'SupplyReturn'); assert.equal(Number(ledgerRow.quantity), -2); assert.equal(Number(ledgerRow.unitCost), 60)
+    const [parent] = await db.select().from(stockLots).where(eq(stockLots.id, back.json.companyLotId))
+    assert.equal(Number(parent.quantity), 2, 'the company lot got the 2 kg back')
+    assert.equal((await call(pos, fsx, { action: 'return-supply', data: { outletId: outlet.id, stockLotId: childLot, quantity: 99, reason: 'x' } })).status, 409, 'cannot return more than the lot holds')
+
+    // Sales and credit at the franchise do not enter the settlement: preview before and after.
+    const before = await preview(staff, franchiseS.id, from, to)
+    assert.equal(before.status, 200, JSON.stringify(before.json))
+    assert.equal(before.json.supplyValue, 900); assert.equal(before.json.returnsValue, 120)
+    const customer = await newCustomer(franchiseS.id)
+    const credit = await sale(fsx, outlet.id, shift.id, [{ product: 'Chicken', quantity: 6 }], { customerId: customer.id, payments: [{ method: 'Cash', amount: 200 }, { method: 'Credit', amount: 400 }] })
+    assert.equal(credit.status, 201, JSON.stringify(credit.json))
+    const collect = await call(pos, fsx, { action: 'collect-receivable', data: { receivableId: credit.json.receivable.id, shiftId: shift.id, amount: 150, method: 'Cash' } })
+    assert.equal(collect.status, 201)
+    const after = await preview(staff, franchiseS.id, from, to)
+    assert.deepEqual(after.json, before.json, 'customer sales, credit and collections never change what the franchise owes the company')
+
+    // Client-supplied money figures are ignored; only adjustments with reasons count: 900 - 120 + 50 - 20 = 810.
+    const res = await settle(staff, { franchiseId: franchiseS.id, periodStart: from, periodEnd: to, supplyValue: 99999, amountDue: 1, grossSales: 5, collections: 5, adjustments: [{ amount: 50, reason: 'Freight' }, { amount: -20, reason: 'Damage credit' }] }, 'set-1')
+    assert.equal(res.status, 201, JSON.stringify(res.json))
+    settlement = res.json.settlement
+    assert.equal(Number(settlement.supplyValue), 900); assert.equal(Number(settlement.returnsValue), 120)
+    assert.equal(Number(settlement.adjustments), 30); assert.equal(Number(settlement.amountDue), 810)
+    assert.equal(Number(settlement.grossSales), 0); assert.equal(Number(settlement.collections), 0)
+    assert.equal(settlement.status, 'Open'); assert.equal(settlement.derived, true)
+    assert.equal(settlement.periodStartDate, from); assert.equal(settlement.periodEndDate, to)
+    assert.equal(res.json.adjustments.length, 2)
+    const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityType, 'settlement_adjustment'))
+    assert.equal(audits.length, 2); assert.ok(audits.every(a => a.actorUserId === staff.user.id && typeof (a.metadata as any).reason === 'string'))
+    assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.entityType, 'franchise_settlement'), eq(auditEvents.entityId, settlement.id)))).length, 1)
+  })
+
+  it('replays by key, rejects a reused key for a different request, and refuses an overlapping period', async () => {
+    const again = await settle(staff, { franchiseId: franchiseS.id, periodStart: from, periodEnd: to, supplyValue: 99999, amountDue: 1, grossSales: 5, collections: 5, adjustments: [{ amount: 50, reason: 'Freight' }, { amount: -20, reason: 'Damage credit' }] }, 'set-1')
+    assert.equal(again.status, 201); assert.equal(again.json.replayed, true)
+    assert.equal(again.json.settlement.id, settlement.id)
+    assert.equal((await db.select().from(settlementRecords).where(eq(settlementRecords.franchiseId, franchiseS.id))).length, 1)
+    assert.equal((await settle(staff, { franchiseId: franchiseS.id, periodStart: from, periodEnd: from }, 'set-1')).status, 409, 'same key, different request')
+
+    assert.equal((await settle(staff, { franchiseId: franchiseS.id, periodStart: from, periodEnd: to })).status, 409, 'same period')
+    assert.equal((await settle(staff, { franchiseId: franchiseS.id, periodStart: shiftDay(from, -5), periodEnd: from })).status, 409, 'overlaps the first day')
+    assert.equal((await settle(staff, { franchiseId: franchiseS.id, periodStart: to, periodEnd: to })).status, 409, 'inside')
+    // Concurrent overlapping creations: exactly one wins.
+    const race = await Promise.all([0, 1, 2].map(() => settle(staff, { franchiseId: franchiseB.id, periodStart: from, periodEnd: to })))
+    assert.deepEqual(race.map(r => r.status).sort(), [201, 409, 409])
+    // A non-overlapping earlier period is fine (no supply: nothing due, so it is Settled at once); franchise B's period never blocked A.
+    const earlier = await settle(staff, { franchiseId: franchiseS.id, periodStart: shiftDay(from, -9), periodEnd: shiftDay(from, -3) })
+    assert.equal(earlier.status, 201, JSON.stringify(earlier.json))
+    assert.equal(earlier.json.settlement.status, 'Settled'); assert.ok(earlier.json.settlement.settledAt)
+  })
+
+  it('validates input and permissions', async () => {
+    const bad = (data: Record<string, unknown>) => settle(staff, { franchiseId: franchiseS.id, periodStart: shiftDay(from, -40), periodEnd: shiftDay(from, -39), ...data })
+    assert.equal((await bad({ adjustments: [{ amount: 10, reason: '  ' }] })).status, 400, 'reason is mandatory')
+    assert.equal((await bad({ adjustments: [{ amount: 10 }] })).status, 400)
+    assert.equal((await bad({ adjustments: [{ amount: 0, reason: 'x' }] })).status, 400)
+    assert.equal((await bad({ adjustments: [{ amount: 'abc', reason: 'x' }] })).status, 400)
+    assert.equal((await bad({ periodStart: '2026-13-01' })).status, 400)
+    assert.equal((await bad({ periodEnd: shiftDay(shiftDay(from, -40), -1) })).status, 400, 'end before start')
+    assert.equal((await bad({ periodStart: shiftDay(to, 1), periodEnd: shiftDay(to, 2) })).status, 400, 'future period')
+    assert.equal((await bad({ adjustments: [{ amount: -50, reason: 'Credit' }] })).status, 409, 'a negative amount due is refused')
+    assert.equal((await settle(fsx, { franchiseId: franchiseS.id, periodStart: from, periodEnd: to })).status, 403, 'franchisee cannot create')
+    assert.equal((await settlePay(fsx, settlement.id, 1)).status, 403)
+    assert.equal((await settle(staff, { franchiseId: '00000000-0000-0000-0000-000000000000', periodStart: from, periodEnd: to })).status, 400)
+  })
+
+  it('payments move Open to Partially Settled to Settled; overpayment is refused; replay and concurrency are safe', async () => {
+    assert.equal((await settlePay(staff, settlement.id, 0)).status, 400)
+    const p1 = await settlePay(staff, settlement.id, 300, 'sp-1')
+    assert.equal(p1.status, 201, JSON.stringify(p1.json))
+    assert.equal(p1.json.settlement.status, 'Partially Settled'); assert.equal(p1.json.settlement.settledAt, null)
+    assert.equal(p1.json.settlement.outstanding, 510)
+    assert.equal((await settlePay(staff, settlement.id, 300, 'sp-1')).json.replayed, true)
+    assert.equal((await db.select().from(settlementPayments).where(eq(settlementPayments.settlementId, settlement.id))).length, 1)
+    assert.equal((await settlePay(staff, settlement.id, 510.01)).status, 409, 'overpayment')
+    // Two concurrent payments of 400 against 510 outstanding: only one fits.
+    const race = await Promise.all([settlePay(staff, settlement.id, 400), settlePay(staff, settlement.id, 400)])
+    assert.deepEqual(race.map(r => r.status).sort(), [201, 409])
+    const [mid] = await db.select().from(settlementRecords).where(eq(settlementRecords.id, settlement.id))
+    assert.equal(Number(mid.paymentsTotal), 700); assert.equal(mid.status, 'Partially Settled')
+    const last = await settlePay(staff, settlement.id, 110)
+    assert.equal(last.json.settlement.status, 'Settled'); assert.ok(last.json.settlement.settledAt)
+    assert.equal(last.json.settlement.outstanding, 0)
+    assert.equal((await settlePay(staff, settlement.id, 0.01)).status, 409, 'nothing left to pay')
+    assert.equal((await db.select().from(auditEvents).where(eq(auditEvents.entityType, 'settlement_payment'))).length, 3)
+    await assert.rejects(pool.query(`UPDATE settlement_records SET payments_total = amount_due + 1 WHERE id = '${settlement.id}'`), /settlement_records_payments_check/)
+  })
+
+  it('a franchisee sees only its own settlements and cannot preview another franchise', async () => {
+    const own = await call(settlements, fsx, undefined, 'GET')
+    assert.equal(own.status, 200)
+    assert.ok(own.json.settlements.length >= 1 && own.json.settlements.every((r: any) => r.franchiseId === franchiseS.id))
+    const theirs = await call(settlements, fb, undefined, 'GET')
+    assert.ok(theirs.json.settlements.every((r: any) => r.franchiseId === franchiseB.id))
+    assert.ok(!theirs.json.settlements.some((r: any) => r.id === settlement.id))
+    assert.equal((await preview(fb, franchiseS.id, from, to)).status, 404)
+    assert.equal((await preview(fsx, franchiseS.id, from, to)).status, 200)
+  })
+
+  it('refuses to settle supply that has no company price instead of guessing', async () => {
+    const f = await createFranchise('Franchise C', 'c@w3.local')
+    const o = await newOutlet(staff, f.id)
+    await db.update(pricingConfigs).set({ status: 'Archived' }).where(eq(pricingConfigs.product, 'Eggs'))
+    await stockOutlet(o.id, 'Eggs', 3)
+    await db.update(pricingConfigs).set({ status: 'Active' }).where(eq(pricingConfigs.product, 'Eggs'))
+    const res = await settle(staff, { franchiseId: f.id, periodStart: from, periodEnd: to })
+    assert.equal(res.status, 409); assert.match(res.json.error, /no company price/)
+  })
+
+  it('retires the manual settlements record: new and edited rows are refused, old rows stay readable', async () => {
+    const [legacy] = await db.insert(records).values({ kind: 'settlements', franchiseId: franchiseS.id, data: { name: 'Old', status: 'Open', settlementAmount: 100 } }).returning()
+    const create = await call(operations, admin, { kind: 'settlements', franchiseId: franchiseS.id, data: { name: 'New', status: 'Open', settlementAmount: 5 } })
+    assert.equal(create.status, 410)
+    const edit = await call(operations, admin, { kind: 'settlements', id: legacy.id, data: { name: 'Old', status: 'Settled', settlementAmount: 100 } }, 'PATCH')
+    assert.equal(edit.status, 410)
+    const list = await call(operations, admin, undefined, 'GET')
+    assert.ok(JSON.stringify(list.json).includes(legacy.id), 'the old row is still readable')
+    assert.equal((await call(fulfillment, staff, { action: 'create-settlement', data: { franchiseId: franchiseS.id } })).status, 410)
+    // A legacy settlement_records row is read-only for payments.
+    const [old] = await db.insert(settlementRecords).values({ franchiseId: franchiseS.id, periodStart: new Date('2020-01-01'), periodEnd: new Date('2020-01-02'), amountDue: '100' }).returning()
+    assert.equal((await settlePay(staff, old.id, 10)).status, 409)
+    assert.equal((await db.select().from(settlementAdjustments)).length >= 2, true)
   })
 })

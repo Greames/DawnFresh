@@ -423,7 +423,7 @@ describe('idempotency (#12)', () => {
     assert.equal(ok.json.replayed, undefined)
   })
 
-  it('return-sale, record-payment, create-invoice, create-settlement and close-shift replay by key', async () => {
+  it('return-sale, record-payment, create-invoice and close-shift replay by key', async () => {
     const outlet = await newOutlet(fa, franchiseA.id)
     await stockOutlet(outlet.id, 'Chicken', 5)
     const shift = await openShift(fa, outlet.id)
@@ -448,12 +448,6 @@ describe('idempotency (#12)', () => {
     assert.equal(i1.status, 201, JSON.stringify(i1.json))
     assert.equal(i2.json.id, i1.json.id)
     assert.equal((await call(fulfillment, fa, { action: 'create-invoice', data: { orderId: row.id, total: 50, paid: 60 } })).status, 400, 'paid above total is refused')
-
-    const settle = { action: 'create-settlement', idempotencyKey: 'set-1', data: { franchiseId: franchiseB.id, periodStart: '2026-09-01', periodEnd: '2026-09-07', grossSales: 100, collections: 40 } }
-    const s1 = await call(fulfillment, staff, settle), s2 = await call(fulfillment, staff, settle)
-    assert.equal(s1.status, 201, JSON.stringify(s1.json))
-    assert.equal(s2.status, 201)
-    assert.equal(s2.json.id, s1.json.id)
 
     const close = { action: 'close-shift', idempotencyKey: 'close-1', data: { shiftId: shift.id, countedCash: 100 } }
     const c1 = await call(pos, fa, close), c2 = await call(pos, fa, close)

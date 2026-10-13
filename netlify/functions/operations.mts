@@ -110,6 +110,8 @@ export default async (req: Request) => {
       return Response.json({ ok: true }, { headers })
     }
     if (typeof body.kind !== 'string' || !Object.hasOwn(statuses, body.kind)) return Response.json({ error: 'Unknown record type.' }, { status: 400, headers })
+    // Retired: the free-form settlements record is read-only. Settlements are derived by /api/settlements; old rows stay readable.
+    if (body.kind === 'settlements') return Response.json({ error: 'Manual settlement records are retired and read-only. Settlements are derived from supply records (/api/settlements).' }, { status: 410, headers })
     const requestedModule = kindModule(body.kind)
     if (own && ['settlements', 'stock_movements'].includes(body.kind)) return Response.json({ error: 'Settlement and stock movement audit records are controlled by the company.' }, { status: 403, headers })
     if (own && !franchiseKinds.includes(body.kind as Kind)) return Response.json({ error: 'Franchise accounts can manage customers, orders, supply, processing, stock, outlets, deliveries, invoices and payments.' }, { status: 403, headers })

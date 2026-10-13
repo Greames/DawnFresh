@@ -23,7 +23,7 @@ export const r3 = (x: number) => Math.round(x * 1000) / 1000
 export const r2 = (x: number) => Math.round(x * 100) / 100
 const num = (v: unknown) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
 
-export type MovementType = 'SupplyIn' | 'TransferIn' | 'Return' | 'Sale' | 'Wastage' | 'Adjustment' | 'Count'
+export type MovementType = 'SupplyIn' | 'TransferIn' | 'Return' | 'Sale' | 'Wastage' | 'SupplyReturn' | 'Adjustment' | 'Count'
 export type LotRow = typeof stockLots.$inferSelect
 export type OutletRow = typeof posOutlets.$inferSelect
 
@@ -152,7 +152,7 @@ export async function removeStock(tx: Tx, a: MovementRefs & {
   product: string
   quantity: number
   lotId?: string | null
-  type: 'Sale' | 'Wastage' | 'Adjustment' | 'Count'
+  type: 'Sale' | 'Wastage' | 'SupplyReturn' | 'Adjustment' | 'Count'
   actor: string
   skipExpired?: boolean
 }): Promise<Removed[]> {

@@ -141,7 +141,7 @@ export const outletStockLedger = pgTable('outlet_stock_ledger', {
   index('outlet_stock_ledger_supply_request_idx').on(table.supplyRequestId),
   index('outlet_stock_ledger_lot_idx').on(table.stockLotId),
   check('outlet_stock_ledger_balance_check', sql`${table.balanceAfter} >= 0`),
-  check('outlet_stock_ledger_movement_check', sql`(${table.movementType} IN ('SupplyIn', 'TransferIn', 'Return') AND ${table.quantity} > 0) OR (${table.movementType} IN ('Sale', 'Wastage') AND ${table.quantity} < 0) OR (${table.movementType} IN ('Adjustment', 'Count') AND ${table.quantity} <> 0)`),
+  check('outlet_stock_ledger_movement_check', sql`(${table.movementType} IN ('SupplyIn', 'TransferIn', 'Return') AND ${table.quantity} > 0) OR (${table.movementType} IN ('Sale', 'Wastage', 'SupplyReturn') AND ${table.quantity} < 0) OR (${table.movementType} IN ('Adjustment', 'Count') AND ${table.quantity} <> 0)`),
 ])
 
 // Current quantity per outlet and product. Its row is the lock that serializes every stock movement for that pair.

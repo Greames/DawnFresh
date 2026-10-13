@@ -3,8 +3,8 @@ import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import {
   auditEvents, customerAddresses, customerOrderItems, customerOrders, dispatchLoads, deliveryRoutes, deliveryStops,
-  drivers, franchises, invoiceRecords, labels, packages, paymentRecords, processingBatches,
-  productionOrders, proofOfDelivery, qcChecks, settlementRecords, stockLots, vehicles
+  drivers, invoiceRecords, labels, packages, paymentRecords, processingBatches,
+  productionOrders, proofOfDelivery, qcChecks, stockLots, vehicles
 } from '../../db/schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
 import type { Access } from '../../db/access.js'
@@ -233,21 +233,8 @@ export default async (req: Request) => {
 
     if (action === 'create-settlement') {
       if (access.role === 'franchisee' || !allowed(access, 'orders', 'edit')) return Response.json({ error: 'Only authorized company staff can create franchise settlements.' }, { status: 403, headers })
-      const franchiseId = text(data.franchiseId, 80)
-      if (!franchiseId || !franchiseAllowed(access, franchiseId)) return Response.json({ error: 'A valid franchise is required.' }, { status: 400, headers })
-      const start = new Date(String(data.periodStart)), end = new Date(String(data.periodEnd))
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return Response.json({ error: 'Settlement period is invalid.' }, { status: 400, headers })
-      const grossSales = num(data.grossSales, Number.NaN), collections = num(data.collections, Number.NaN), adjustments = num(data.adjustments)
-      if (!Number.isFinite(grossSales) || !Number.isFinite(collections) || !Number.isFinite(adjustments) || grossSales < 0 || collections < 0) return Response.json({ error: 'Settlement sales and collections must be valid non-negative amounts.' }, { status: 400, headers })
-      const amountDue = r2(grossSales - collections + adjustments)
-      const done = await run(async tx => {
-        const [franchise] = uuidPattern.test(franchiseId) ? await tx.select({ id: franchises.id }).from(franchises).where(eq(franchises.id, franchiseId)) : []
-        if (!franchise) throw new Rejection(400, 'A valid franchise is required.')
-        const [settlement] = await tx.insert(settlementRecords).values({ franchiseId, periodStart: start, periodEnd: end, grossSales: String(r2(grossSales)), collections: String(r2(collections)), adjustments: String(r2(adjustments)), amountDue: String(amountDue), status: 'Open' }).returning()
-        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId, entityType: 'franchise_settlement', entityId: settlement.id, action: 'created', metadata: { periodStart: start.toISOString(), periodEnd: end.toISOString(), grossSales, collections, adjustments, amountDue, idempotencyKey: key } })
-        return { status: 201, body: settlement }
-      })
-      return respond(done, headers)
+      // Retired: settlements are derived from the supply ledger on the server (POST /api/settlements). Old rows stay readable.
+      return Response.json({ error: 'Manual settlements are retired. Settlements are now derived from supply records: use /api/settlements (create-settlement with the franchise, period and any adjustments with reasons).' }, { status: 410, headers })
     }
 
     if (action === 'create-invoice') {

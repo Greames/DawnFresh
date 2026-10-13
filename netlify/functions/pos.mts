@@ -347,6 +347,31 @@ export default async (req: Request) => {
       return respond(done, headers)
     }
 
+    if (action === 'return-supply') {
+      // Company-supplied stock goes back to the company lot it came from. The value is quantity x the lot's carried company price,
+      // so the franchise's settlement is reduced by exactly what it was billed for those goods.
+      const denied = editOnly(); if (denied) return denied
+      const outletId = uid(data.outletId), lotId = uid(data.stockLotId), qty = n(data.quantity), reason = s(data.reason, 300)
+      if (!outletId || !lotId) return Response.json({ error: 'A valid outlet and stock lot are required.' }, { status: 400, headers })
+      if (!(qty > 0) || !reason) return Response.json({ error: 'A supply return needs a positive quantity and a reason.' }, { status: 400, headers })
+      const done = await run(async tx => {
+        const outlet = await loadOutlet(tx, access, outletId)
+        if (!outlet.franchiseId) throw new Rejection(400, 'Only franchise outlets return supplied stock to the company.')
+        const [peek] = await tx.select().from(stockLots).where(eq(stockLots.id, lotId))
+        if (!peek || peek.posOutletId !== outlet.id || !peek.parentLotId) throw new Rejection(400, 'Only a lot supplied by the company can be returned to it.')
+        if (peek.unitCost === null) throw new Rejection(409, 'This lot has no recorded company price, so the return cannot be valued.')
+        // Lock order: outlet balance, outlet lot (inside removeStock), then the company lot.
+        const [removed] = await removeStock(tx, { outlet, product: peek.product, quantity: qty, lotId, type: 'SupplyReturn', actor, referenceType: 'SUPPLY_RETURN', reason })
+        const [parent] = await tx.select().from(stockLots).where(eq(stockLots.id, peek.parentLotId)).for('update')
+        if (!parent) throw new Rejection(409, 'The company lot this stock came from no longer exists.')
+        await tx.update(stockLots).set({ quantity: r3(n(parent.quantity) + qty).toFixed(3), status: 'Available', updatedAt: new Date() }).where(eq(stockLots.id, parent.id))
+        const value = r2(qty * n(removed.unitCost))
+        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: outlet.franchiseId, entityType: 'supply_return', entityId: removed.ledgerId, action: 'recorded', metadata: { outletId, product: peek.product, quantity: qty, stockLotId: lotId, companyLotId: parent.id, unitCost: n(removed.unitCost), value, reason, idempotencyKey: key } })
+        return { status: 201, body: { ledgerId: removed.ledgerId, product: peek.product, quantity: qty, unitCost: n(removed.unitCost), value, companyLotId: parent.id } }
+      })
+      return respond(done, headers)
+    }
+
     if (action === 'record-wastage' || action === 'adjust-stock' || action === 'count-stock') {
       const denied = editOnly(); if (denied) return denied
       const outletId = uid(data.outletId), product = s(data.product, 80), lotId = data.stockLotId ? uid(data.stockLotId) : null

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { pgTable, text, uuid, jsonb, timestamp, index, integer, unique, numeric, check } from 'drizzle-orm/pg-core'
+import { pgTable, text, uuid, jsonb, timestamp, index, integer, unique, numeric, check, date, boolean } from 'drizzle-orm/pg-core'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { posOutlets } from './pos-schema.js'
 
@@ -387,21 +387,68 @@ export const paymentRecords = pgTable('payment_records', {
   index('payment_records_invoice_idx').on(table.invoiceId),
 ])
 
+// A franchise settlement for an inclusive range of IST business dates, derived on the server from the supply
+// ledger (see netlify/functions/settlements.mts). derived = false marks legacy manually entered rows, which stay
+// readable but are never changed. For derived rows:
+//   amount_due = supply value - supply returns value + adjustments (what the franchise owes the company for the period)
+//   outstanding = amount_due - payments_total; status Open -> Partially Settled -> Settled (settled_at set).
+// grossSales and collections are legacy columns and stay 0 on derived rows: the franchise's own customer
+// collections and receivables never enter this amount.
 export const settlementRecords = pgTable('settlement_records', {
   id: uuid().defaultRandom().primaryKey(),
   franchiseId: uuid('franchise_id').notNull().references(() => franchises.id),
   periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
   periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
+  periodStartDate: date('period_start_date', { mode: 'string' }),
+  periodEndDate: date('period_end_date', { mode: 'string' }),
   grossSales: money('gross_sales').notNull().default('0'),
   collections: money('collections').notNull().default('0'),
+  supplyValue: money('supply_value').notNull().default('0'),
+  returnsValue: money('returns_value').notNull().default('0'),
   adjustments: money('adjustments').notNull().default('0'),
   amountDue: money('amount_due').notNull().default('0'),
+  paymentsTotal: money('payments_total').notNull().default('0'),
+  derived: boolean().notNull().default(false),
   status: text().notNull().default('Open'),
   settledAt: timestamp('settled_at', { withTimezone: true }),
+  createdBy: uuid('created_by').references(() => appUsers.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, table => [
   index('settlement_records_franchise_period_idx').on(table.franchiseId, table.periodStart),
   unique('settlement_records_franchise_period_unique').on(table.franchiseId, table.periodStart, table.periodEnd),
+  check('settlement_records_status_check', sql`${table.status} IN ('Open', 'Partially Settled', 'Settled')`),
+  check('settlement_records_payments_check', sql`${table.paymentsTotal} >= 0 AND (${table.derived} = false OR ${table.paymentsTotal} <= ${table.amountDue})`),
+  check('settlement_records_dates_check', sql`${table.periodStartDate} IS NULL OR ${table.periodEndDate} >= ${table.periodStartDate}`),
+])
+
+// A signed correction to a derived settlement (positive = franchise owes more). The reason is mandatory.
+export const settlementAdjustments = pgTable('settlement_adjustments', {
+  id: uuid().defaultRandom().primaryKey(),
+  settlementId: uuid('settlement_id').notNull().references(() => settlementRecords.id),
+  franchiseId: uuid('franchise_id').notNull().references(() => franchises.id),
+  amount: money('amount').notNull(),
+  reason: text().notNull(),
+  createdBy: uuid('created_by').notNull().references(() => appUsers.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  index('settlement_adjustments_settlement_idx').on(table.settlementId),
+  check('settlement_adjustments_amount_check', sql`${table.amount} <> 0`),
+  check('settlement_adjustments_reason_check', sql`length(btrim(${table.reason})) > 0`),
+])
+
+// Money the franchise paid the company against a settlement, recorded by company staff.
+export const settlementPayments = pgTable('settlement_payments', {
+  id: uuid().defaultRandom().primaryKey(),
+  settlementId: uuid('settlement_id').notNull().references(() => settlementRecords.id),
+  franchiseId: uuid('franchise_id').notNull().references(() => franchises.id),
+  amount: money('amount').notNull(),
+  method: text().notNull(),
+  reference: text(),
+  recordedBy: uuid('recorded_by').notNull().references(() => appUsers.id),
+  paidAt: timestamp('paid_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  index('settlement_payments_settlement_idx').on(table.settlementId),
+  check('settlement_payments_amount_check', sql`${table.amount} > 0`),
 ])
 
 // Replay store for retried writes. A client-chosen key plus the acting user and action identify one logical
