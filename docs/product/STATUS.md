@@ -15,6 +15,8 @@ Last review: 2026-10-13 (initial).
 
 - Customer prices at the POS are set by the company (13 Oct; read as the answer to 'who sets the customer price'). To confirm: whether a franchise may discount within a limit.
 
+- Franchises may sell on credit to their customers, at the franchisee's own risk (13 Oct). Implication: a franchise owes the company for supply it received whether or not its own customers pay; uncollected franchise receivables must not reduce the settlement. The franchise's credit sales still need a receivable record (#11) so its collections and outstanding are reported correctly.
+
 ## Decisions needed from the owner
 1. Rasoinet eligibility (owner, 13 Oct): free while the restaurant pays at least Rs 1,00,000 every month, measured over the last 30 days, counting payments received. To confirm: grace period before access turns read-only (suggested), and whether refunds reduce the paid amount (suggested yes).
 2. Who supports the restaurant software after an operator takes over the meat business.
