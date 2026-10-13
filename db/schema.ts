@@ -1,4 +1,11 @@
-import { pgTable, text, uuid, jsonb, timestamp, index, integer, unique } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { pgTable, text, uuid, jsonb, timestamp, index, integer, unique, numeric, check } from 'drizzle-orm/pg-core'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
+import { posOutlets } from './pos-schema.js'
+
+// Money is numeric(16,2) and quantities numeric(16,3); both are returned by Drizzle as strings.
+const money = (name: string) => numeric(name, { precision: 16, scale: 2 })
+const qty = (name: string) => numeric(name, { precision: 16, scale: 3 })
 
 export const franchises = pgTable('franchises', {
   id: uuid().defaultRandom().primaryKey(),
@@ -106,10 +113,10 @@ export const customerOrders = pgTable('customer_orders', {
   status: text().notNull(),
   channel: text(),
   orderDate: timestamp('order_date', { withTimezone: true }).notNull(),
-  subtotal: text(),
-  tax: text(),
-  total: text(),
-  paid: text(),
+  subtotal: money('subtotal'),
+  tax: money('tax'),
+  total: money('total'),
+  paid: money('paid'),
   currency: text().notNull().default('INR'),
   deliveryDate: timestamp('delivery_date', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -118,16 +125,17 @@ export const customerOrders = pgTable('customer_orders', {
   index('customer_orders_customer_idx').on(table.customerId),
   index('customer_orders_franchise_status_idx').on(table.franchiseId, table.status),
   index('customer_orders_date_idx').on(table.orderDate),
+  check('customer_orders_paid_check', sql`${table.paid} >= 0 AND ${table.paid} <= ${table.total}`),
 ])
 
 export const customerOrderItems = pgTable('customer_order_items', {
   id: uuid().defaultRandom().primaryKey(),
   orderId: uuid('order_id').notNull().references(() => customerOrders.id, { onDelete: 'cascade' }),
   product: text().notNull(),
-  quantity: text().notNull(),
+  quantity: qty('quantity').notNull(),
   unit: text().notNull(),
-  unitPrice: text('unit_price'),
-  lineTotal: text('line_total'),
+  unitPrice: money('unit_price'),
+  lineTotal: money('line_total'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, table => [
   index('customer_order_items_order_idx').on(table.orderId),
@@ -154,7 +162,7 @@ export const productionOrders = pgTable('production_orders', {
   orderId: uuid('order_id').references(() => customerOrders.id),
   franchiseId: uuid('franchise_id').references(() => franchises.id),
   product: text().notNull(),
-  requestedQuantity: text('requested_quantity').notNull(),
+  requestedQuantity: qty('requested_quantity').notNull(),
   unit: text().notNull(),
   status: text().notNull().default('Planned'),
   dueAt: timestamp('due_at', { withTimezone: true }),
@@ -170,9 +178,9 @@ export const processingBatches = pgTable('processing_batches', {
   id: uuid().defaultRandom().primaryKey(),
   productionOrderId: uuid('production_order_id').references(() => productionOrders.id),
   product: text().notNull(),
-  inputQuantity: text('input_quantity').notNull(),
-  outputQuantity: text('output_quantity').notNull(),
-  wasteQuantity: text('waste_quantity').notNull().default('0'),
+  inputQuantity: qty('input_quantity').notNull(),
+  outputQuantity: qty('output_quantity').notNull(),
+  wasteQuantity: qty('waste_quantity').notNull().default('0'),
   unit: text().notNull(),
   status: text().notNull().default('Planned'),
   qcStatus: text('qc_status').notNull().default('Pending'),
@@ -199,11 +207,17 @@ export const qcChecks = pgTable('qc_checks', {
 export const stockLots = pgTable('stock_lots', {
   id: uuid().defaultRandom().primaryKey(),
   product: text().notNull(),
-  quantity: text().notNull(),
+  quantity: qty('quantity').notNull(),
   unit: text().notNull(),
   stage: text().notNull().default('Finished stock'),
   sourceBatchId: uuid('source_batch_id').references(() => processingBatches.id),
   outletId: uuid('outlet_id').references(() => records.id),
+  // Ownership. Both null = company stock (allocatable by company allocation only). franchise_id set = owned by
+  // that franchise; pos_outlet_id set = physically held by that POS outlet (and sellable there). A lot received by
+  // a franchise from the company is a child lot (parent_lot_id) of the company lot it was cut from.
+  franchiseId: uuid('franchise_id').references(() => franchises.id),
+  posOutletId: uuid('pos_outlet_id').references(() => posOutlets.id),
+  parentLotId: uuid('parent_lot_id').references((): AnyPgColumn => stockLots.id),
   batchCode: text('batch_code').notNull(),
   expiryAt: timestamp('expiry_at', { withTimezone: true }),
   status: text().notNull().default('Available'),
@@ -213,6 +227,9 @@ export const stockLots = pgTable('stock_lots', {
   index('stock_lots_product_stage_idx').on(table.product, table.stage),
   index('stock_lots_batch_code_idx').on(table.batchCode),
   index('stock_lots_expiry_idx').on(table.expiryAt),
+  index('stock_lots_outlet_product_idx').on(table.posOutletId, table.product),
+  index('stock_lots_franchise_idx').on(table.franchiseId),
+  check('stock_lots_quantity_check', sql`${table.quantity} >= 0`),
 ])
 
 export const packages = pgTable('packages', {
@@ -220,7 +237,7 @@ export const packages = pgTable('packages', {
   orderId: uuid('order_id').notNull().references(() => customerOrders.id),
   packageCode: text('package_code').notNull().unique(),
   product: text().notNull(),
-  quantity: text().notNull(),
+  quantity: qty('quantity').notNull(),
   unit: text().notNull(),
   status: text().notNull().default('Packed'),
   packedAt: timestamp('packed_at', { withTimezone: true }),
@@ -234,7 +251,7 @@ export const packageItems = pgTable('package_items', {
   id: uuid().defaultRandom().primaryKey(),
   packageId: uuid('package_id').notNull().references(() => packages.id, { onDelete: 'cascade' }),
   stockLotId: uuid('stock_lot_id').references(() => stockLots.id),
-  quantity: text().notNull(),
+  quantity: qty('quantity').notNull(),
   unit: text().notNull(),
 }, table => [
   index('package_items_package_idx').on(table.packageId),
@@ -317,6 +334,7 @@ export const dispatchLoads = pgTable('dispatch_loads', {
 }, table => [
   index('dispatch_loads_route_idx').on(table.routeId),
   index('dispatch_loads_package_idx').on(table.packageId),
+  unique('dispatch_loads_route_package_unique').on(table.routeId, table.packageId),
 ])
 
 export const proofOfDelivery = pgTable('proof_of_delivery', {
@@ -336,10 +354,10 @@ export const invoiceRecords = pgTable('invoice_records', {
   orderId: uuid('order_id').references(() => customerOrders.id),
   posSaleId: uuid('pos_sale_id'),
   invoiceNumber: text('invoice_number').notNull().unique(),
-  subtotal: text().notNull().default('0'),
-  tax: text().notNull().default('0'),
-  total: text().notNull().default('0'),
-  paid: text().notNull().default('0'),
+  subtotal: money('subtotal').notNull().default('0'),
+  tax: money('tax').notNull().default('0'),
+  total: money('total').notNull().default('0'),
+  paid: money('paid').notNull().default('0'),
   status: text().notNull().default('Draft'),
   issuedAt: timestamp('issued_at', { withTimezone: true }),
   dueAt: timestamp('due_at', { withTimezone: true }),
@@ -348,6 +366,7 @@ export const invoiceRecords = pgTable('invoice_records', {
 }, table => [
   index('invoice_records_order_idx').on(table.orderId),
   index('invoice_records_status_idx').on(table.status),
+  check('invoice_records_paid_check', sql`${table.paid} >= 0 AND ${table.paid} <= ${table.total}`),
 ])
 
 export const paymentRecords = pgTable('payment_records', {
@@ -355,7 +374,7 @@ export const paymentRecords = pgTable('payment_records', {
   orderId: uuid('order_id').references(() => customerOrders.id),
   invoiceId: uuid('invoice_id').references(() => invoiceRecords.id),
   posSaleId: uuid('pos_sale_id'),
-  amount: text().notNull(),
+  amount: money('amount').notNull(),
   method: text().notNull(),
   reference: text(),
   status: text().notNull().default('Received'),
@@ -371,10 +390,10 @@ export const settlementRecords = pgTable('settlement_records', {
   franchiseId: uuid('franchise_id').notNull().references(() => franchises.id),
   periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
   periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
-  grossSales: text('gross_sales').notNull().default('0'),
-  collections: text().notNull().default('0'),
-  adjustments: text().notNull().default('0'),
-  amountDue: text('amount_due').notNull().default('0'),
+  grossSales: money('gross_sales').notNull().default('0'),
+  collections: money('collections').notNull().default('0'),
+  adjustments: money('adjustments').notNull().default('0'),
+  amountDue: money('amount_due').notNull().default('0'),
   status: text().notNull().default('Open'),
   settledAt: timestamp('settled_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -382,3 +401,17 @@ export const settlementRecords = pgTable('settlement_records', {
   index('settlement_records_franchise_period_idx').on(table.franchiseId, table.periodStart),
   unique('settlement_records_franchise_period_unique').on(table.franchiseId, table.periodStart, table.periodEnd),
 ])
+
+// Replay store for retried writes. A client-chosen key plus the acting user and action identify one logical
+// request; the first transaction that claims the key stores its response here, in the same transaction as the
+// business change, so a replay returns the same result and never repeats the change.
+export const idempotencyKeys = pgTable('idempotency_keys', {
+  id: uuid().defaultRandom().primaryKey(),
+  actorUserId: uuid('actor_user_id').notNull().references(() => appUsers.id),
+  action: text().notNull(),
+  key: text().notNull(),
+  requestHash: text('request_hash').notNull(),
+  responseStatus: integer('response_status'),
+  responseBody: jsonb('response_body').$type<unknown>(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [unique('idempotency_keys_actor_action_key_unique').on(table.actorUserId, table.action, table.key)])

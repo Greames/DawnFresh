@@ -1,4 +1,5 @@
-import { pgTable, text, uuid, timestamp, numeric, index, unique } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { pgTable, text, uuid, timestamp, numeric, index, unique, check, primaryKey, bigint } from 'drizzle-orm/pg-core'
 import { franchises, appUsers, customers, stockLots } from './schema.js'
 
 export const posOutlets = pgTable('pos_outlets', {
@@ -72,8 +73,10 @@ export const posReturns = pgTable('pos_returns', {
   quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull(),
   amount: numeric('amount', { precision: 16, scale: 2 }).notNull(),
   reason: text(),
+  // What happened to the returned goods: put back on the shelf (Restock) or discarded (Wastage).
+  disposition: text().notNull().default('Restock'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-})
+}, table => [check('pos_returns_disposition_check', sql`${table.disposition} IN ('Restock', 'Wastage')`)])
 
 export const posReconciliations = pgTable('pos_reconciliations', {
   id: uuid().defaultRandom().primaryKey(),
@@ -100,16 +103,64 @@ export const posReconciliations = pgTable('pos_reconciliations', {
   unique('pos_reconciliations_shift_unique').on(table.shiftId),
 ])
 
+// The single stock ledger for everything that is not company warehouse stock. A franchise's stock is the sum of
+// its outlets' balances. Every movement names the lot it touched and the business reference that caused it.
+// Movement quantities are signed; balance_after is the outlet/product balance after the movement and is produced
+// from the locked stock_balances row, never from a read of the previous ledger row.
 export const outletStockLedger = pgTable('outlet_stock_ledger', {
   id: uuid().defaultRandom().primaryKey(),
+  // Tie-breaker for rows written in one transaction (created_at is the transaction start time).
+  seq: bigint({ mode: 'number' }).generatedAlwaysAsIdentity(),
   outletId: uuid('outlet_id').notNull().references(() => posOutlets.id),
+  franchiseId: uuid('franchise_id').references(() => franchises.id),
   product: text().notNull(),
   stockLotId: uuid('stock_lot_id').references(() => stockLots.id),
   movementType: text('movement_type').notNull(),
   quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull(),
   referenceType: text('reference_type'),
   referenceId: uuid('reference_id'),
+  saleId: uuid('sale_id').references(() => posSales.id),
+  supplyRequestId: uuid('supply_request_id'),
+  purchaseOrderId: uuid('purchase_order_id'),
+  goodsReceiptId: uuid('goods_receipt_id'),
+  reason: text(),
   balanceAfter: numeric('balance_after', { precision: 16, scale: 3 }).notNull().default('0'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   createdBy: uuid('created_by').references(() => appUsers.id),
-}, table => [index('outlet_stock_ledger_outlet_product_idx').on(table.outletId, table.product, table.createdAt), index('outlet_stock_ledger_ref_idx').on(table.referenceType, table.referenceId)])
+}, table => [
+  index('outlet_stock_ledger_outlet_product_idx').on(table.outletId, table.product, table.createdAt),
+  index('outlet_stock_ledger_ref_idx').on(table.referenceType, table.referenceId),
+  index('outlet_stock_ledger_supply_request_idx').on(table.supplyRequestId),
+  index('outlet_stock_ledger_lot_idx').on(table.stockLotId),
+  check('outlet_stock_ledger_balance_check', sql`${table.balanceAfter} >= 0`),
+  check('outlet_stock_ledger_movement_check', sql`(${table.movementType} IN ('SupplyIn', 'TransferIn', 'Return') AND ${table.quantity} > 0) OR (${table.movementType} IN ('Sale', 'Wastage') AND ${table.quantity} < 0) OR (${table.movementType} IN ('Adjustment', 'Count') AND ${table.quantity} <> 0)`),
+])
+
+// Current quantity per outlet and product. Its row is the lock that serializes every stock movement for that pair.
+export const stockBalances = pgTable('stock_balances', {
+  outletId: uuid('outlet_id').notNull().references(() => posOutlets.id),
+  product: text().notNull(),
+  quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull().default('0'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  primaryKey({ columns: [table.outletId, table.product] }),
+  check('stock_balances_quantity_check', sql`${table.quantity} >= 0`),
+])
+
+// A physical stock count. The variance (counted - system) is posted to the ledger as a Count movement.
+export const stockCounts = pgTable('stock_counts', {
+  id: uuid().defaultRandom().primaryKey(),
+  outletId: uuid('outlet_id').notNull().references(() => posOutlets.id),
+  franchiseId: uuid('franchise_id').references(() => franchises.id),
+  product: text().notNull(),
+  stockLotId: uuid('stock_lot_id').references(() => stockLots.id),
+  systemQuantity: numeric('system_quantity', { precision: 16, scale: 3 }).notNull(),
+  countedQuantity: numeric('counted_quantity', { precision: 16, scale: 3 }).notNull(),
+  variance: numeric('variance', { precision: 16, scale: 3 }).notNull(),
+  reason: text(),
+  countedBy: uuid('counted_by').references(() => appUsers.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  index('stock_counts_outlet_product_idx').on(table.outletId, table.product, table.createdAt),
+  check('stock_counts_quantities_check', sql`${table.countedQuantity} >= 0 AND ${table.systemQuantity} >= 0`),
+])

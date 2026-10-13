@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { pgTable, text, uuid, timestamp, numeric, index, check } from 'drizzle-orm/pg-core'
+import { pgTable, text, uuid, timestamp, numeric, index, check, uniqueIndex } from 'drizzle-orm/pg-core'
 import { franchises, appUsers, stockLots } from './schema.js'
 
 export const suppliers = pgTable('suppliers', {
@@ -24,7 +24,11 @@ export const purchaseOrders = pgTable('purchase_orders', {
   orderedAt: timestamp('ordered_at', { withTimezone: true }).defaultNow().notNull(),
   expectedAt: timestamp('expected_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-}, table => [index('purchase_orders_supplier_status_idx').on(table.supplierId, table.status)])
+}, table => [
+  index('purchase_orders_supplier_status_idx').on(table.supplierId, table.status),
+  // One live purchase order per franchise supply request.
+  uniqueIndex('purchase_orders_supply_request_live_unique').on(table.supplyRequestId).where(sql`${table.status} <> 'Cancelled'`),
+])
 
 export const goodsReceipts = pgTable('goods_receipts', {
   id: uuid().defaultRandom().primaryKey(),
@@ -68,6 +72,8 @@ export const supplierPayments = pgTable('supplier_payments', {
   paidAt: timestamp('paid_at', { withTimezone: true }).defaultNow().notNull(),
 }, table => [index('supplier_payments_invoice_idx').on(table.supplierInvoiceId)])
 
+// Legacy, frozen: written by transfer-to-franchise until the unified outlet_stock_ledger replaced it. Kept for
+// history and for supply-request delivered-quantity totals; nothing writes to it any more.
 export const franchiseStockLedger = pgTable('franchise_stock_ledger', {
   id: uuid().defaultRandom().primaryKey(),
   supplyRequestId: uuid('supply_request_id'),
