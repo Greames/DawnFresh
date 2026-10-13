@@ -7,6 +7,7 @@ import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
 import type { Access } from '../../db/access.js'
 import { Rejection, failure, idempotencyKeyOf, respond, transact } from '../../db/tx.js'
 import type { Tx } from '../../db/tx.js'
+import { guardBusinessDay } from '../../db/daily-close.js'
 import { companyPrice, customerPrice } from '../../db/pricing.js'
 import { EPS, PRODUCTS, addStock, lockBalance, lockCompanyLots, moveStock, r2, r3, receiveFromCompanyLot, removeStock } from '../../db/stock.js'
 
@@ -90,6 +91,7 @@ export default async (req: Request) => {
       try {
         // One open shift per outlet: checked under a per-outlet lock inside the transaction, and backed by a partial unique index.
         const row = await db.transaction(async tx => {
+          await guardBusinessDay(tx, outlet.franchiseId)
           await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'open-shift:' + outletId}))`)
           const [open] = await tx.select({ id: posShifts.id }).from(posShifts).where(and(eq(posShifts.outletId, outletId), eq(posShifts.status, 'Open')))
           if (open) throw new Rejection(409, 'An open shift already exists for this outlet.')
@@ -130,6 +132,7 @@ export default async (req: Request) => {
 
       const done = await run(async tx => {
         const outlet = await loadOutlet(tx, access, uid(outletId)).catch(() => { throw new Rejection(400, 'Open outlet shift is required.') })
+        await guardBusinessDay(tx, outlet.franchiseId)
         // A shared lock on the shift lets sales run side by side while close-shift (which takes the exclusive lock) waits for them.
         const [shift] = uid(shiftId) ? await tx.select().from(posShifts).where(eq(posShifts.id, shiftId)).for('share') : []
         if (!shift || shift.outletId !== outlet.id || shift.status !== 'Open') throw new Rejection(400, 'Open outlet shift is required.')
@@ -226,6 +229,7 @@ export default async (req: Request) => {
       const done = await run(async tx => {
         const [peek] = await tx.select().from(customerReceivables).where(eq(customerReceivables.id, receivableId))
         if (!peek || !scope(access, peek.franchiseId)) throw new Rejection(404, 'Receivable not found.')
+        await guardBusinessDay(tx, peek.franchiseId)
         const [shift] = await tx.select().from(posShifts).where(eq(posShifts.id, shiftId)).for('share')
         const [shiftOutlet] = shift ? await tx.select().from(posOutlets).where(eq(posOutlets.id, shift.outletId)) : []
         if (!shift || shift.status !== 'Open' || !shiftOutlet || (shiftOutlet.franchiseId ?? null) !== (peek.franchiseId ?? null)) throw new Rejection(400, 'An open shift of this franchise is required to take a payment.')
@@ -296,6 +300,9 @@ export default async (req: Request) => {
       const reason = s(data.reason, 300) || null
 
       const done = await run(async tx => {
+        const [peekSale] = await tx.select().from(posSales).where(eq(posSales.id, saleId))
+        const [peekOutlet] = peekSale ? await tx.select().from(posOutlets).where(eq(posOutlets.id, peekSale.outletId)) : []
+        if (peekOutlet && scope(access, peekOutlet.franchiseId)) await guardBusinessDay(tx, peekOutlet.franchiseId)
         // The item row is the lock for its remaining quantity: concurrent returns queue here and re-read the total.
         const [item] = await tx.select().from(posSaleItems).where(eq(posSaleItems.id, itemId)).for('update')
         const [sale] = await tx.select().from(posSales).where(eq(posSales.id, saleId))
@@ -386,6 +393,7 @@ export default async (req: Request) => {
         if (!(qty > 0) || !reason) return Response.json({ error: 'Wastage needs a positive quantity and a reason.' }, { status: 400, headers })
         const done = await run(async tx => {
           const outlet = await loadOutlet(tx, access, outletId)
+          await guardBusinessDay(tx, outlet.franchiseId)
           const removed = await removeStock(tx, { outlet, product, quantity: qty, lotId, type: 'Wastage', actor, referenceType: 'WASTAGE', reason })
           await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: outlet.franchiseId, entityType: 'stock_wastage', entityId: removed[0].ledgerId, action: 'recorded', metadata: { outletId, product, quantity: qty, reason, lots: removed.map(r => r.lotId), idempotencyKey: key } })
           return { status: 201, body: { rows: await tx.select().from(outletStockLedger).where(inArray(outletStockLedger.id, removed.map(r => r.ledgerId))).orderBy(outletStockLedger.seq) } }
@@ -400,6 +408,7 @@ export default async (req: Request) => {
         if (delta > 0 && access.role === 'franchisee') return Response.json({ error: 'Franchise accounts can only reduce stock. Ask the company to add stock.' }, { status: 403, headers })
         const done = await run(async tx => {
           const outlet = await loadOutlet(tx, access, outletId)
+          await guardBusinessDay(tx, outlet.franchiseId)
           const refs = { referenceType: 'ADJUSTMENT', reason }
           const ids = delta < 0
             ? (await removeStock(tx, { outlet, product, quantity: -delta, lotId, type: 'Adjustment', actor, ...refs })).map(r => r.ledgerId)
@@ -414,6 +423,7 @@ export default async (req: Request) => {
       if (!Number.isFinite(counted) || counted < 0) return Response.json({ error: 'countedQuantity must be zero or more.' }, { status: 400, headers })
       const done = await run(async tx => {
         const outlet = await loadOutlet(tx, access, outletId)
+        await guardBusinessDay(tx, outlet.franchiseId)
         const balance = await lockBalance(tx, outletId, product)
         let system = balance
         if (lotId) {

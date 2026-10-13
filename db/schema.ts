@@ -451,6 +451,32 @@ export const settlementPayments = pgTable('settlement_payments', {
   check('settlement_payments_amount_check', sql`${table.amount} > 0`),
 ])
 
+// One close record per franchise per IST business date. Closed = signed off: further sales, returns, wastage,
+// counts, adjustments and collections for that franchise and date are refused until company staff reopen it (with a
+// reason, audited). `totals` is the full ledger-derived snapshot taken at sign-off; a re-close after a reopen replaces it.
+export const franchiseDailyCloses = pgTable('franchise_daily_closes', {
+  id: uuid().defaultRandom().primaryKey(),
+  franchiseId: uuid('franchise_id').notNull().references(() => franchises.id),
+  businessDate: date('business_date', { mode: 'string' }).notNull(),
+  status: text().notNull().default('Closed'),
+  totals: jsonb().$type<Record<string, unknown>>().notNull(),
+  expectedCash: money('expected_cash').notNull().default('0'),
+  countedCash: money('counted_cash').notNull().default('0'),
+  cashVariance: money('cash_variance').notNull().default('0'),
+  notes: text(),
+  closedBy: uuid('closed_by').notNull().references(() => appUsers.id),
+  closedAt: timestamp('closed_at', { withTimezone: true }).defaultNow().notNull(),
+  reopenCount: integer('reopen_count').notNull().default(0),
+  reopenedBy: uuid('reopened_by').references(() => appUsers.id),
+  reopenedAt: timestamp('reopened_at', { withTimezone: true }),
+  reopenReason: text('reopen_reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  unique('franchise_daily_closes_franchise_date_unique').on(table.franchiseId, table.businessDate),
+  check('franchise_daily_closes_status_check', sql`${table.status} IN ('Closed', 'Reopened')`),
+  check('franchise_daily_closes_reopen_check', sql`${table.status} = 'Closed' OR (${table.reopenReason} IS NOT NULL AND length(btrim(${table.reopenReason})) > 0)`),
+])
+
 // Replay store for retried writes. A client-chosen key plus the acting user and action identify one logical
 // request; the first transaction that claims the key stores its response here, in the same transaction as the
 // business change, so a replay returns the same result and never repeats the change.

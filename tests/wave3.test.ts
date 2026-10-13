@@ -4,15 +4,17 @@ import { and, eq } from 'drizzle-orm'
 import { db, pool } from './helpers/test-db.js'
 import { call, createFranchise, createUser, resetDatabase, seedPrices } from './helpers/harness.js'
 import type { Actor } from './helpers/harness.js'
-import { auditEvents, customers, invoiceRecords, records, settlementAdjustments, settlementPayments, settlementRecords, stockLots } from '../db/schema.js'
+import { auditEvents, customers, franchiseDailyCloses, invoiceRecords, records, settlementAdjustments, settlementPayments, settlementRecords, stockLots } from '../db/schema.js'
 import { pricingConfigs } from '../db/pricing-schema.js'
-import { customerReceivables, outletStockLedger, posSales, posShifts, receivablePayments } from '../db/pos-schema.js'
+import { customerReceivables, outletStockLedger, posOutlets, posSales, posShifts, receivablePayments } from '../db/pos-schema.js'
 import pos from '../netlify/functions/pos.mts'
 import procurement from '../netlify/functions/procurement.mts'
 import operations from '../netlify/functions/operations.mts'
 import fulfillment from '../netlify/functions/fulfillment.mts'
 import settlements from '../netlify/functions/settlements.mts'
-import { businessDateOf } from '../src/lib/business.js'
+import dailyClose from '../netlify/functions/daily-close.mts'
+import kpi from '../netlify/functions/kpi.mts'
+import { businessDateOf, businessDayRange, businessPeriodRange, isBusinessDate } from '../src/lib/business.js'
 
 let supplierId: string
 let admin: Actor, staff: Actor, fa: Actor, fb: Actor
@@ -385,5 +387,208 @@ describe('derived franchise settlement (#13)', () => {
     const [old] = await db.insert(settlementRecords).values({ franchiseId: franchiseS.id, periodStart: new Date('2020-01-01'), periodEnd: new Date('2020-01-02'), amountDue: '100' }).returning()
     assert.equal((await settlePay(staff, old.id, 10)).status, 409)
     assert.equal((await db.select().from(settlementAdjustments)).length >= 2, true)
+  })
+})
+
+describe('business date helper (IST, UTC+5:30)', () => {
+  it('maps UTC instants to the IST calendar date around 18:30 UTC', () => {
+    assert.equal(businessDateOf('2026-10-13T18:29:59.999Z'), '2026-10-13')
+    assert.equal(businessDateOf('2026-10-13T18:30:00.000Z'), '2026-10-14')
+    assert.equal(businessDateOf('2026-10-13T00:00:00.000Z'), '2026-10-13')
+    assert.equal(businessDateOf('2026-12-31T18:30:00.000Z'), '2027-01-01', 'year boundary')
+    assert.equal(businessDateOf('2028-02-28T18:30:00.000Z'), '2028-02-29', 'leap day')
+    assert.throws(() => businessDateOf('not a date'))
+  })
+  it('bounds a business date with [18:30 UTC the day before, 18:30 UTC)', () => {
+    const { start, end } = businessDayRange('2026-10-14')
+    assert.equal(start.toISOString(), '2026-10-13T18:30:00.000Z'); assert.equal(end.toISOString(), '2026-10-14T18:30:00.000Z')
+    assert.equal(businessPeriodRange('2026-10-14', '2026-10-15').end.toISOString(), '2026-10-15T18:30:00.000Z')
+    assert.equal(businessDateOf(start), '2026-10-14'); assert.equal(businessDateOf(new Date(end.getTime() - 1)), '2026-10-14'); assert.equal(businessDateOf(end), '2026-10-15')
+    assert.equal(isBusinessDate('2026-02-30'), false); assert.equal(isBusinessDate('2026-2-3'), false); assert.equal(isBusinessDate('2026-10-13'), true)
+  })
+})
+
+describe('daily franchise close and HQ KPIs (#14)', () => {
+  let fd: { id: string }, fe: { id: string }, fdUser: Actor, feUser: Actor
+  let o1: { id: string }, o2: { id: string }, s1: { id: string }, s2: { id: string }
+  const date = today()
+  const closeDay = (actor: Actor, data: Record<string, unknown>, key?: string) => call(dailyClose, actor, { action: 'close-day', idempotencyKey: key, data: { businessDate: date, ...data } })
+  const reopen = (actor: Actor, data: Record<string, unknown>) => call(dailyClose, actor, { action: 'reopen-day', data: { businessDate: date, ...data } })
+  const kpiFor = (actor: Actor, query = '') => call(kpi, actor, undefined, 'GET', `?from=${date}&to=${date}${query}`)
+
+  before(async () => {
+    fd = await createFranchise('Franchise D', 'd@w3.local'); fe = await createFranchise('Franchise E', 'e@w3.local')
+    fdUser = await createUser('franchisee', 'fd@w3.local', { franchiseId: fd.id })
+    feUser = await createUser('franchisee', 'fe@w3.local', { franchiseId: fe.id })
+  })
+
+  it('closes the day only when every shift is closed, with totals equal to the hand-computed figures', async () => {
+    o1 = await newOutlet(fdUser, fd.id); o2 = await newOutlet(fdUser, fd.id)
+    await deliver(await supplyChain(fdUser, 20), fd.id, 20, o1.id)
+    await deliver(await supplyChain(fdUser, 10), fd.id, 10, o2.id)
+    s1 = await openShift(fdUser, o1.id, 100); s2 = await openShift(fdUser, o2.id, 50)
+    const customer = await newCustomer(fd.id)
+    const first = await sale(fdUser, o1.id, s1.id, [{ product: 'Chicken', quantity: 5 }])                      // cash 500
+    await sale(fdUser, o1.id, s1.id, [{ product: 'Chicken', quantity: 4 }], { payments: [{ method: 'UPI' }] })   // upi 400
+    const credit = await sale(fdUser, o1.id, s1.id, [{ product: 'Chicken', quantity: 3 }], { customerId: customer.id, payments: [{ method: 'Cash', amount: 100 }, { method: 'Credit', amount: 200 }] })
+    await sale(fdUser, o2.id, s2.id, [{ product: 'Chicken', quantity: 2 }], { payments: [{ method: 'Card' }] }) // card 200
+    assert.equal((await call(pos, fdUser, { action: 'return-sale', data: { saleId: first.json.sale.id, itemId: first.json.items[0].id, quantity: 1 } })).status, 201) // refund 100 cash
+    assert.equal((await call(pos, fdUser, { action: 'collect-receivable', data: { receivableId: credit.json.receivable.id, shiftId: s1.id, amount: 150, method: 'Cash' } })).status, 201)
+    assert.equal((await call(pos, fdUser, { action: 'record-wastage', data: { outletId: o1.id, product: 'Chicken', quantity: 1, reason: 'Spoiled' } })).status, 201)
+    assert.equal((await call(pos, fdUser, { action: 'count-stock', data: { outletId: o2.id, product: 'Chicken', countedQuantity: 7.5, reason: 'Short' } })).status, 201)
+
+    const refused = await closeDay(fdUser, {})
+    assert.equal(refused.status, 409); assert.match(refused.json.error, /2 shift\(s\) are still open/)
+    assert.equal((await call(pos, fdUser, { action: 'close-shift', data: { shiftId: s1.id, countedCash: 740 } })).status, 201)
+    assert.equal((await closeDay(fdUser, {})).status, 409, 'one shift still open')
+    assert.equal((await call(pos, fdUser, { action: 'close-shift', data: { shiftId: s2.id, countedCash: 50 } })).status, 201)
+
+    const res = await closeDay(fdUser, { notes: 'ok' }, 'cd-1')
+    assert.equal(res.status, 201, JSON.stringify(res.json))
+    const t = res.json.totals
+    assert.deepEqual([t.sales.count, t.sales.subtotal, t.sales.tax, t.sales.total], [4, 1400, 0, 1400])
+    assert.deepEqual([t.returns.count, t.returns.amount], [1, 100])
+    assert.equal(t.creditSales, 200)
+    assert.deepEqual(t.collections.posSales, { Cash: 600, UPI: 400, Card: 200 })
+    assert.deepEqual(t.collections.refunds, { Cash: 100, UPI: 0, Card: 0 })
+    assert.deepEqual(t.collections.receivables, { Cash: 150, UPI: 0, Card: 0 })
+    assert.deepEqual(t.collections.total, { Cash: 750, UPI: 400, Card: 200 })
+    assert.deepEqual([t.cash.shifts, t.cash.expected, t.cash.counted, t.cash.variance], [2, 800, 790, -10])
+    assert.deepEqual([Number(res.json.expectedCash), Number(res.json.countedCash), Number(res.json.cashVariance)], [800, 790, -10])
+    assert.deepEqual([t.wastage.quantity, t.wastage.value], [1, 60])
+    assert.deepEqual([t.stockVariance.quantity, t.stockVariance.value], [-0.5, -30])
+    assert.deepEqual([t.supply.received, t.supply.returned], [1800, 0])
+    assert.equal(res.json.status, 'Closed'); assert.equal(res.json.closedBy, fdUser.user.id)
+    assert.equal((await closeDay(fdUser, { notes: 'ok' }, 'cd-1')).json.replayed, true)
+    assert.equal((await closeDay(fdUser, {})).status, 409, 'already closed')
+    assert.equal((await db.select().from(franchiseDailyCloses).where(eq(franchiseDailyCloses.franchiseId, fd.id))).length, 1)
+    const audit = await db.select().from(auditEvents).where(and(eq(auditEvents.entityType, 'franchise_daily_close'), eq(auditEvents.entityId, res.json.id)))
+    assert.deepEqual(audit.map(a => a.action), ['closed']); assert.equal(audit[0].actorUserId, fdUser.user.id)
+  })
+
+  it('refuses sales, returns, wastage, counts, adjustments, collections and shift opens once closed; reopening needs staff and a reason', async () => {
+    const item = (await db.select().from(posSales).where(eq(posSales.outletId, o1.id)))[0]
+    const blocked = async (action: string, data: Record<string, unknown>) => {
+      const res = await call(pos, fdUser, { action, data })
+      assert.equal(res.status, 409, `${action}: ${JSON.stringify(res.json)}`); assert.match(res.json.error, /closed for this franchise/)
+    }
+    await blocked('record-sale', { outletId: o1.id, shiftId: s1.id, items: [{ product: 'Chicken', quantity: 1 }] })
+    await blocked('open-shift', { outletId: o1.id })
+    const [saleItem] = await db.select().from((await import('../db/pos-schema.js')).posSaleItems).where(eq((await import('../db/pos-schema.js')).posSaleItems.saleId, item.id))
+    await blocked('return-sale', { saleId: item.id, itemId: saleItem.id, quantity: 0.5 })
+    await blocked('record-wastage', { outletId: o1.id, product: 'Chicken', quantity: 1, reason: 'x' })
+    await blocked('adjust-stock', { outletId: o1.id, product: 'Chicken', quantityDelta: -1, reason: 'x' })
+    await blocked('count-stock', { outletId: o1.id, product: 'Chicken', countedQuantity: 1, reason: 'x' })
+    const [rec] = await db.select().from(customerReceivables).where(eq(customerReceivables.franchiseId, fd.id))
+    await blocked('collect-receivable', { receivableId: rec.id, shiftId: s1.id, amount: 10 })
+    // The same franchise's closed day does not stop another franchise, and a rejected request wrote nothing.
+    const oe = await newOutlet(feUser, fe.id)
+    await stockOutlet(oe.id, 'Chicken', 5)
+    const se = await openShift(feUser, oe.id)
+    assert.equal((await sale(feUser, oe.id, se.id, [{ product: 'Chicken', quantity: 1 }])).status, 201)
+    assert.equal((await db.select().from(posSales).where(eq(posSales.outletId, o1.id))).length, 3)
+
+    assert.equal((await reopen(fdUser, { franchiseId: fd.id, reason: 'x' })).status, 403, 'a franchisee cannot reopen')
+    assert.equal((await reopen(staff, { franchiseId: fd.id })).status, 400, 'a reason is mandatory')
+    assert.equal((await reopen(staff, { franchiseId: fd.id, reason: '   ' })).status, 400)
+    assert.equal((await reopen(staff, { franchiseId: fe.id, reason: 'not closed' })).status, 409)
+    const re = await reopen(staff, { franchiseId: fd.id, reason: 'Missed a late bill' })
+    assert.equal(re.status, 200, JSON.stringify(re.json))
+    assert.equal(re.json.status, 'Reopened'); assert.equal(re.json.reopenReason, 'Missed a late bill'); assert.equal(re.json.reopenedBy, staff.user.id); assert.equal(re.json.reopenCount, 1)
+    const audit = await db.select().from(auditEvents).where(and(eq(auditEvents.entityType, 'franchise_daily_close'), eq(auditEvents.entityId, re.json.id)))
+    const reopened = audit.find(a => a.action === 'reopened')!
+    assert.equal(reopened.actorUserId, staff.user.id); assert.equal((reopened.metadata as any).reason, 'Missed a late bill')
+    assert.equal((await reopen(staff, { franchiseId: fd.id, reason: 'again' })).status, 409, 'already open')
+
+    // Selling works again; then the day is closed again with the new figures.
+    const late = await sale(fdUser, o1.id, s1.id, [{ product: 'Chicken', quantity: 1 }])
+    assert.equal(late.status, 400, 'shift 1 was closed, so a sale needs a new shift')
+    const s3 = await openShift(fdUser, o1.id, 0)
+    assert.equal((await sale(fdUser, o1.id, s3.id, [{ product: 'Chicken', quantity: 1 }])).status, 201)
+    assert.equal((await closeDay(fdUser, {})).status, 409, 'the new shift is open')
+    assert.equal((await call(pos, fdUser, { action: 'close-shift', data: { shiftId: s3.id, countedCash: 100 } })).status, 201)
+    const again = await closeDay(staff, { franchiseId: fd.id })
+    assert.equal(again.status, 201, JSON.stringify(again.json))
+    assert.deepEqual([again.json.totals.sales.count, again.json.totals.sales.total], [5, 1500])
+    assert.equal(again.json.closedBy, staff.user.id, 'company staff can sign off')
+    assert.equal(again.json.id, re.json.id, 'one record per franchise and date')
+    assert.deepEqual((await db.select().from(auditEvents).where(and(eq(auditEvents.entityType, 'franchise_daily_close'), eq(auditEvents.entityId, re.json.id))).orderBy(auditEvents.createdAt)).map(a => a.action).sort(), ['closed', 'reclosed', 'reopened'])
+  })
+
+  it('validates the close request and keeps franchises apart', async () => {
+    assert.equal((await closeDay(staff, { franchiseId: fd.id, businessDate: '2026-02-30' })).status, 400)
+    assert.equal((await closeDay(staff, { franchiseId: fd.id, businessDate: shiftDay(date, 1) })).status, 400, 'future day')
+    assert.equal((await closeDay(staff, {})).status, 400, 'staff must name the franchise')
+    assert.equal((await closeDay(feUser, { franchiseId: fd.id })).status, 404, 'franchise E cannot close franchise D')
+    const own = await call(dailyClose, feUser, undefined, 'GET')
+    assert.equal(own.status, 200); assert.ok(own.json.closes.every((c: any) => c.franchiseId === fe.id))
+    assert.equal((await call(dailyClose, feUser, undefined, 'GET', `?franchiseId=${fd.id}`)).status, 404)
+    const all = await call(dailyClose, staff, undefined, 'GET')
+    assert.ok(all.json.closes.some((c: any) => c.franchiseId === fd.id))
+  })
+
+  it('reports KPIs equal to the hand-computed figures and nothing from another franchise', async () => {
+    // Day figures now: 5 sales (1500), 1 return (100), cost 6 kg + ... sold 15 kg x 60 = 900, returned 1 kg x 60.
+    const res = await kpiFor(staff, `&franchiseId=${fd.id}`)
+    assert.equal(res.status, 200, JSON.stringify(res.json))
+    const k = res.json.franchises[0]
+    assert.equal(res.json.franchises.length, 1); assert.equal(k.franchiseId, fd.id)
+    assert.deepEqual([k.sales.count, k.sales.total, k.sales.returns, k.sales.net, k.sales.revenueExTax, k.sales.creditSales], [5, 1500, 100, 1400, 1400, 200])
+    assert.equal(k.cogs, 840); assert.equal(k.cogsComplete, true)       // 15 kg x 60 - 1 kg x 60
+    assert.equal(k.grossMargin, 560); assert.equal(k.grossMarginPct, 40)  // 1400 - 840
+    assert.deepEqual([k.wastage.quantity, k.wastage.value], [1, 60])
+    assert.deepEqual([k.stockVariance.quantity, k.stockVariance.value], [-0.5, -30])
+    assert.deepEqual(k.collections.total, { Cash: 850, UPI: 400, Card: 200 }) // + the late 100 cash sale
+    assert.deepEqual(k.customerReceivablesOutstanding, { count: 1, balance: 50 })
+    assert.equal(k.deliveryCost, null)
+    assert.equal(k.owesCompany.unbilledSupply, 1800); assert.equal(k.owesCompany.total, 1800); assert.equal(k.owesCompany.settlementsOutstanding, 0)
+
+    // What the franchise owes the company: a settlement for today with one adjustment, then a payment.
+    const set = await settle(staff, { franchiseId: fd.id, periodStart: date, periodEnd: date, adjustments: [{ amount: 100, reason: 'Late fee' }] })
+    assert.equal(set.status, 201, JSON.stringify(set.json))
+    assert.equal(Number(set.json.settlement.amountDue), 1900)
+    assert.equal((await settlePay(staff, set.json.settlement.id, 500)).status, 201)
+    const after = (await kpiFor(staff, `&franchiseId=${fd.id}`)).json.franchises[0]
+    assert.deepEqual([after.owesCompany.settlementsOutstanding, after.owesCompany.unbilledSupply, after.owesCompany.total], [1400, 0, 1400])
+    assert.equal(after.customerReceivablesOutstanding.balance, 50, 'customer receivables do not reduce what the franchise owes the company')
+
+    // Staff see every franchise with totals; a franchisee sees only their own and no totals.
+    const everyone = await kpiFor(staff)
+    assert.ok(everyone.json.franchises.length >= 2 && everyone.json.franchises.some((f: any) => f.franchiseId === fd.id) && everyone.json.franchises.some((f: any) => f.franchiseId === fe.id))
+    assert.ok(everyone.json.totals.salesTotal >= 1500)
+    const fromE = await kpiFor(feUser)
+    assert.deepEqual(fromE.json.franchises.map((f: any) => f.franchiseId), [fe.id]); assert.equal(fromE.json.totals, undefined)
+    assert.equal(fromE.json.franchises[0].sales.total, 100, "E's own single 100 sale only")
+    assert.equal((await kpiFor(feUser, `&franchiseId=${fd.id}`)).status, 404, 'franchise B cannot read franchise A')
+    assert.ok(!JSON.stringify(fromE.json).includes(fd.id))
+    assert.equal((await call(kpi, feUser, undefined, 'GET', '?from=2026-13-01&to=2026-13-02')).status, 400)
+    assert.equal((await call(kpi, null, undefined, 'GET', `?from=${date}&to=${date}`)).status, 401)
+  })
+
+  it('assigns sales, shifts and supply to IST days exactly at 18:30 UTC', async () => {
+    const f = await createFranchise('Franchise IST', 'ist@w3.local')
+    const u = await createUser('staff', 'ist-staff@w3.local')
+    const [outlet] = await db.insert(posOutlets).values({ franchiseId: f.id, code: 'IST-1', name: 'IST outlet' }).returning()
+    const [shiftA] = await db.insert(posShifts).values({ outletId: outlet.id, cashierId: u.user.id, openedAt: new Date('2026-01-10T18:29:59.000Z'), status: 'Closed', expectedCash: '10', countedCash: '10' }).returning()
+    const [shiftB] = await db.insert(posShifts).values({ outletId: outlet.id, cashierId: u.user.id, openedAt: new Date('2026-01-10T18:30:00.000Z'), status: 'Closed', expectedCash: '20', countedCash: '25' }).returning()
+    await db.insert(posSales).values([
+      { outletId: outlet.id, shiftId: shiftA.id, billNumber: 'IST-A', cashierId: u.user.id, subtotal: '100', total: '100', soldAt: new Date('2026-01-10T18:29:59.999Z') },
+      { outletId: outlet.id, shiftId: shiftB.id, billNumber: 'IST-B', cashierId: u.user.id, subtotal: '300', total: '300', soldAt: new Date('2026-01-10T18:30:00.000Z') },
+    ])
+    const [lot] = await db.insert(stockLots).values({ product: 'Chicken', quantity: '0', unit: 'kg', batchCode: 'IST-LOT', status: 'Depleted', franchiseId: f.id, posOutletId: outlet.id, unitCost: '10' }).returning()
+    await db.insert(outletStockLedger).values([
+      { outletId: outlet.id, franchiseId: f.id, product: 'Chicken', stockLotId: lot.id, movementType: 'SupplyIn', quantity: '1', unitCost: '10', createdAt: new Date('2026-01-10T18:29:59.999Z') },
+      { outletId: outlet.id, franchiseId: f.id, product: 'Chicken', stockLotId: lot.id, movementType: 'SupplyIn', quantity: '2', unitCost: '10', createdAt: new Date('2026-01-10T18:30:00.000Z') },
+    ])
+    const close = (businessDate: string) => call(dailyClose, u, { action: 'close-day', data: { franchiseId: f.id, businessDate } })
+    const d10 = await close('2026-01-10'), d11 = await close('2026-01-11')
+    assert.equal(d10.status, 201, JSON.stringify(d10.json)); assert.equal(d11.status, 201, JSON.stringify(d11.json))
+    assert.deepEqual([d10.json.totals.sales.total, d10.json.totals.sales.count, d10.json.totals.cash.expected, d10.json.totals.supply.received], [100, 1, 10, 10], '18:29:59.999Z is still 10 Jan IST')
+    assert.deepEqual([d11.json.totals.sales.total, d11.json.totals.sales.count, d11.json.totals.cash.expected, d11.json.totals.cash.variance, d11.json.totals.supply.received], [300, 1, 20, 5, 20], '18:30:00.000Z is 11 Jan IST')
+    // A settlement over the two days takes both; over only 10 Jan it takes the first movement only.
+    const single = await call(settlements, u, undefined, 'GET', `?franchiseId=${f.id}&from=2026-01-10&to=2026-01-10`)
+    assert.equal(single.json.supplyValue, 10)
+    const both = await call(settlements, u, undefined, 'GET', `?franchiseId=${f.id}&from=2026-01-10&to=2026-01-11`)
+    assert.equal(both.json.supplyValue, 30)
   })
 })
