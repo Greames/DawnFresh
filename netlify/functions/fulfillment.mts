@@ -3,11 +3,16 @@ import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import {
   auditEvents, customerAddresses, customerOrderItems, customerOrders, dispatchLoads, deliveryRoutes, deliveryStops,
-  drivers, invoiceRecords, labels, packages, paymentRecords, processingBatches,
+  drivers, franchises, invoiceRecords, labels, packages, paymentRecords, processingBatches,
   productionOrders, proofOfDelivery, qcChecks, settlementRecords, stockLots, vehicles
 } from '../../db/schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
 import type { Access } from '../../db/access.js'
+import { Rejection, failure, idempotencyKeyOf, respond, transact } from '../../db/tx.js'
+import type { Tx } from '../../db/tx.js'
+import { r2 } from '../../db/stock.js'
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const products = ['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns']
 
@@ -53,7 +58,7 @@ export default async (req: Request) => {
         return Response.json({
           production: visibleProduction,
           batches: visibleBatches,
-          lots: lots.filter(row => !!row.sourceBatchId && batchIds.has(row.sourceBatchId)),
+          lots: lots.filter(row => row.franchiseId === access.franchise!.id || (!!row.sourceBatchId && batchIds.has(row.sourceBatchId))),
           packages: packageRows.filter(row => orderIds.has(row.orderId)),
           routes: visibleRoutes,
           stops: stops.filter(row => routeIds.has(row.routeId) && orderIds.has(row.orderId)),
@@ -70,6 +75,8 @@ export default async (req: Request) => {
     const action = text(body?.action, 80)
     const data = body?.data && typeof body.data === 'object' ? body.data : {}
     const actor = access.account.id
+    const key = idempotencyKeyOf(req, body)
+    const run = (fn: (tx: Tx) => Promise<{ status: number; body: unknown }>) => transact({ actor, action, key, payload: data }, fn)
 
     if (action === 'create-production') {
       if (!allowed(access, 'processing', 'edit')) return Response.json({ error: 'Processing edit access is required.' }, { status: 403, headers })
@@ -98,7 +105,7 @@ export default async (req: Request) => {
         const [batch] = await tx.insert(processingBatches).values({ productionOrderId, product: production.product, inputQuantity: String(input), outputQuantity: String(output), wasteQuantity: String(waste), unit: production.unit, status: qcStatus === 'Passed' ? 'Completed' : 'Quality Check', qcStatus, qcRemarks: text(data.qcRemarks) || null, processedAt: qcStatus === 'Passed' ? new Date() : undefined }).returning()
         if (batch.qcStatus !== 'Pending') await tx.insert(qcChecks).values({ processingBatchId: batch.id, status: batch.qcStatus, temperature: data.temperature === undefined ? null : String(num(data.temperature)), remarks: text(data.qcRemarks) || null, checkedBy: actor })
         if (batch.qcStatus === 'Passed') {
-          await tx.insert(stockLots).values({ product: batch.product, quantity: String(output), unit: batch.unit, sourceBatchId: batch.id, batchCode: text(data.batchCode, 100) || `FR-${Date.now()}`, status: 'Available' })
+          await tx.insert(stockLots).values({ product: batch.product, quantity: String(output), unit: batch.unit, sourceBatchId: batch.id, batchCode: text(data.batchCode, 100) || `FR-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, status: 'Available', franchiseId: production.franchiseId })
           await tx.update(productionOrders).set({ status: 'Completed', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
         } else {
           await tx.update(productionOrders).set({ status: qcStatus === 'Failed' ? 'Rejected' : 'Quality Check', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
@@ -113,14 +120,18 @@ export default async (req: Request) => {
     if (action === 'create-package') {
       if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Order edit access is required.' }, { status: 403, headers })
       const orderId = text(data.orderId, 80), quantity = num(data.quantity)
-      const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, orderId))
-      if (!order || !franchiseAllowed(access, order.franchiseId)) return Response.json({ error: 'Order not found.' }, { status: 404, headers })
+      if (!uuidPattern.test(orderId)) return Response.json({ error: 'Order not found.' }, { status: 404, headers })
       if (quantity <= 0) return Response.json({ error: 'Package quantity must be greater than zero.' }, { status: 400, headers })
-      const code = text(data.packageCode, 80) || `PKG-${Date.now()}-${Math.floor(Math.random()*1000)}`
-      const [pkg] = await db.insert(packages).values({ orderId, packageCode: code, product: text(data.product,80) || 'Chicken', quantity: String(quantity), unit: text(data.unit,30) || 'kg', status: 'Packed', packedAt: new Date() }).returning()
-      const [label] = await db.insert(labels).values({ packageId: pkg.id, code: `LBL-${code}`, payload: { packageCode: code, orderId, product: pkg.product, quantity, unit: pkg.unit } }).returning()
-      await db.insert(auditEvents).values({ actorUserId: actor, franchiseId: order.franchiseId, entityType: 'package', entityId: pkg.id, action: 'packed', metadata: { labelId: label.id } })
-      return Response.json({ package: pkg, label }, { status: 201, headers })
+      const done = await run(async tx => {
+        const [order] = await tx.select().from(customerOrders).where(eq(customerOrders.id, orderId))
+        if (!order || !franchiseAllowed(access, order.franchiseId)) throw new Rejection(404, 'Order not found.')
+        const code = text(data.packageCode, 80) || `PKG-${crypto.randomUUID().slice(0, 8).toUpperCase()}`
+        const [pkg] = await tx.insert(packages).values({ orderId, packageCode: code, product: text(data.product, 80) || 'Chicken', quantity: String(quantity), unit: text(data.unit, 30) || 'kg', status: 'Packed', packedAt: new Date() }).returning()
+        const [label] = await tx.insert(labels).values({ packageId: pkg.id, code: `LBL-${code}`, payload: { packageCode: code, orderId, product: pkg.product, quantity, unit: pkg.unit } }).returning()
+        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: order.franchiseId, entityType: 'package', entityId: pkg.id, action: 'packed', metadata: { labelId: label.id, idempotencyKey: key } })
+        return { status: 201, body: { package: pkg, label } }
+      })
+      return respond(done, headers)
     }
 
     if (action === 'create-route') {
@@ -148,19 +159,25 @@ export default async (req: Request) => {
 
     if (action === 'scan-load') {
       if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Order edit access is required.' }, { status: 403, headers })
-      const routeId = text(data.routeId,80), packageId = text(data.packageId,80)
-      const [route] = await db.select().from(deliveryRoutes).where(eq(deliveryRoutes.id, routeId))
-      const [pkg] = await db.select().from(packages).where(eq(packages.id, packageId))
-      if (!route || !pkg || !franchiseAllowed(access, route.franchiseId)) return Response.json({ error: 'Route or package not found.' }, { status: 404, headers })
-      const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, pkg.orderId))
-      const [stop] = order ? await db.select().from(deliveryStops).where(and(eq(deliveryStops.routeId, routeId), eq(deliveryStops.orderId, order.id))) : []
-      if (!order || !stop || order.franchiseId !== route.franchiseId || !franchiseAllowed(access, order.franchiseId)) return Response.json({ error: 'Package is not assigned to a delivery stop on this route.' }, { status: 400, headers })
-      const [existingLoad] = await db.select().from(dispatchLoads).where(and(eq(dispatchLoads.routeId, routeId), eq(dispatchLoads.packageId, packageId)))
-      if (existingLoad) return Response.json({ error: 'This package is already scanned onto the route.' }, { status: 409, headers })
-      const [load] = await db.insert(dispatchLoads).values({ routeId, packageId, scannedBy: actor, status: 'Loaded' }).returning()
-      await db.update(packages).set({ status: 'Loaded' }).where(eq(packages.id, packageId))
-      await db.update(deliveryRoutes).set({ status: 'Loaded', updatedAt: new Date() }).where(eq(deliveryRoutes.id, routeId))
-      return Response.json(load, { status: 201, headers })
+      const routeId = text(data.routeId, 80), packageId = text(data.packageId, 80)
+      if (!uuidPattern.test(routeId) || !uuidPattern.test(packageId)) return Response.json({ error: 'Route or package not found.' }, { status: 404, headers })
+      const done = await run(async tx => {
+        // The package row is the lock: two scanners of the same package queue here and the second sees the first load.
+        const [pkg] = await tx.select().from(packages).where(eq(packages.id, packageId)).for('update')
+        const [route] = await tx.select().from(deliveryRoutes).where(eq(deliveryRoutes.id, routeId)).for('update')
+        if (!route || !pkg || !franchiseAllowed(access, route.franchiseId)) throw new Rejection(404, 'Route or package not found.')
+        const [order] = await tx.select().from(customerOrders).where(eq(customerOrders.id, pkg.orderId))
+        const [stop] = order ? await tx.select().from(deliveryStops).where(and(eq(deliveryStops.routeId, routeId), eq(deliveryStops.orderId, order.id))) : []
+        if (!order || !stop || order.franchiseId !== route.franchiseId || !franchiseAllowed(access, order.franchiseId)) throw new Rejection(400, 'Package is not assigned to a delivery stop on this route.')
+        const [existingLoad] = await tx.select().from(dispatchLoads).where(and(eq(dispatchLoads.routeId, routeId), eq(dispatchLoads.packageId, packageId)))
+        if (existingLoad) throw new Rejection(409, 'This package is already scanned onto the route.')
+        const [load] = await tx.insert(dispatchLoads).values({ routeId, packageId, scannedBy: actor, status: 'Loaded' }).returning()
+        await tx.update(packages).set({ status: 'Loaded' }).where(eq(packages.id, packageId))
+        await tx.update(deliveryRoutes).set({ status: 'Loaded', updatedAt: new Date() }).where(eq(deliveryRoutes.id, routeId))
+        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: route.franchiseId, entityType: 'dispatch_load', entityId: load.id, action: 'scanned', metadata: { routeId, packageId, idempotencyKey: key } })
+        return { status: 201, body: load }
+      })
+      return respond(done, headers)
     }
 
     if (action === 'proof-of-delivery') {
@@ -179,18 +196,23 @@ export default async (req: Request) => {
 
     if (action === 'record-payment') {
       if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Payment edit access is required.' }, { status: 403, headers })
-      const orderId = text(data.orderId,80), amount = num(data.amount)
+      const orderId = text(data.orderId, 80), amount = num(data.amount)
       if (amount <= 0) return Response.json({ error: 'Payment amount must be greater than zero.' }, { status: 400, headers })
-      const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, orderId))
-      if (!order || !franchiseAllowed(access, order.franchiseId)) return Response.json({ error: 'Order not found.' }, { status: 404, headers })
-      const [invoice] = await db.select().from(invoiceRecords).where(eq(invoiceRecords.orderId, orderId)).orderBy(desc(invoiceRecords.createdAt))
-      const [payment] = await db.insert(paymentRecords).values({ orderId, invoiceId: invoice?.id, amount: String(amount), method: text(data.method,50) || 'Other', reference: text(data.reference,200) || null }).returning()
-      if (invoice) {
-        const paid = num(invoice.paid) + amount
-        const total = num(invoice.total)
-        await db.update(invoiceRecords).set({ paid: String(paid), status: paid >= total ? 'Paid' : 'Partially Paid', updatedAt: new Date() }).where(eq(invoiceRecords.id, invoice.id))
-      }
-      return Response.json(payment, { status: 201, headers })
+      if (!uuidPattern.test(orderId)) return Response.json({ error: 'Order not found.' }, { status: 404, headers })
+      const done = await run(async tx => {
+        const [order] = await tx.select().from(customerOrders).where(eq(customerOrders.id, orderId))
+        if (!order || !franchiseAllowed(access, order.franchiseId)) throw new Rejection(404, 'Order not found.')
+        // The invoice row is the lock: concurrent payments queue here and each sees the balance left by the one before.
+        const [invoice] = await tx.select().from(invoiceRecords).where(eq(invoiceRecords.orderId, orderId)).orderBy(desc(invoiceRecords.createdAt)).limit(1).for('update')
+        if (!invoice) throw new Rejection(409, 'This order has no invoice to pay. Create the invoice first.')
+        const paid = r2(num(invoice.paid) + amount), total = num(invoice.total)
+        if (paid > total + 0.0001) throw new Rejection(409, `Payment exceeds the unpaid balance of ${r2(total - num(invoice.paid))}.`)
+        const [payment] = await tx.insert(paymentRecords).values({ orderId, invoiceId: invoice.id, amount: String(r2(amount)), method: text(data.method, 50) || 'Other', reference: text(data.reference, 200) || null }).returning()
+        await tx.update(invoiceRecords).set({ paid: String(paid), status: paid >= total ? 'Paid' : 'Partially Paid', updatedAt: new Date() }).where(eq(invoiceRecords.id, invoice.id))
+        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: order.franchiseId, entityType: 'payment', entityId: payment.id, action: 'recorded', metadata: { orderId, invoiceId: invoice.id, amount, paidAfter: paid, idempotencyKey: key } })
+        return { status: 201, body: payment }
+      })
+      return respond(done, headers)
     }
 
     if (action === 'create-driver') {
@@ -217,28 +239,38 @@ export default async (req: Request) => {
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return Response.json({ error: 'Settlement period is invalid.' }, { status: 400, headers })
       const grossSales = num(data.grossSales, Number.NaN), collections = num(data.collections, Number.NaN), adjustments = num(data.adjustments)
       if (!Number.isFinite(grossSales) || !Number.isFinite(collections) || !Number.isFinite(adjustments) || grossSales < 0 || collections < 0) return Response.json({ error: 'Settlement sales and collections must be valid non-negative amounts.' }, { status: 400, headers })
-      const amountDue = grossSales - collections + adjustments
-      const [settlement] = await db.insert(settlementRecords).values({ franchiseId, periodStart: start, periodEnd: end, grossSales: String(grossSales), collections: String(collections), adjustments: String(adjustments), amountDue: String(amountDue), status: 'Open' }).returning()
-      await db.insert(auditEvents).values({ actorUserId: actor, franchiseId, entityType: 'franchise_settlement', entityId: settlement.id, action: 'created', metadata: { periodStart: start.toISOString(), periodEnd: end.toISOString(), grossSales, collections, adjustments, amountDue } })
-      return Response.json(settlement, { status: 201, headers })
+      const amountDue = r2(grossSales - collections + adjustments)
+      const done = await run(async tx => {
+        const [franchise] = uuidPattern.test(franchiseId) ? await tx.select({ id: franchises.id }).from(franchises).where(eq(franchises.id, franchiseId)) : []
+        if (!franchise) throw new Rejection(400, 'A valid franchise is required.')
+        const [settlement] = await tx.insert(settlementRecords).values({ franchiseId, periodStart: start, periodEnd: end, grossSales: String(r2(grossSales)), collections: String(r2(collections)), adjustments: String(r2(adjustments)), amountDue: String(amountDue), status: 'Open' }).returning()
+        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId, entityType: 'franchise_settlement', entityId: settlement.id, action: 'created', metadata: { periodStart: start.toISOString(), periodEnd: end.toISOString(), grossSales, collections, adjustments, amountDue, idempotencyKey: key } })
+        return { status: 201, body: settlement }
+      })
+      return respond(done, headers)
     }
 
     if (action === 'create-invoice') {
       if (!allowed(access, 'orders', 'edit')) return Response.json({ error: 'Order edit access is required.' }, { status: 403, headers })
-      const orderId = text(data.orderId,80)
-      const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, orderId))
-      if (!order || !franchiseAllowed(access, order.franchiseId)) return Response.json({ error: 'Order not found.' }, { status: 404, headers })
-      const total = num(data.total, num(order.total)), subtotal = num(data.subtotal, num(order.subtotal, total)), tax = num(data.tax)
-      const [invoice] = await db.insert(invoiceRecords).values({ orderId, invoiceNumber: text(data.invoiceNumber,80) || `INV-${Date.now()}`, subtotal: String(subtotal), tax: String(tax), total: String(total), paid: String(num(data.paid)), status: num(data.paid) >= total ? 'Paid' : num(data.paid) > 0 ? 'Partially Paid' : 'Issued', issuedAt: new Date(), dueAt: data.dueAt ? new Date(String(data.dueAt)) : undefined }).returning()
-      return Response.json(invoice, { status: 201, headers })
+      const orderId = text(data.orderId, 80)
+      if (!uuidPattern.test(orderId)) return Response.json({ error: 'Order not found.' }, { status: 404, headers })
+      const dueAt = data.dueAt ? new Date(String(data.dueAt)) : undefined
+      if (dueAt && Number.isNaN(dueAt.getTime())) return Response.json({ error: 'Invoice due date is invalid.' }, { status: 400, headers })
+      const done = await run(async tx => {
+        const [order] = await tx.select().from(customerOrders).where(eq(customerOrders.id, orderId))
+        if (!order || !franchiseAllowed(access, order.franchiseId)) throw new Rejection(404, 'Order not found.')
+        const total = r2(num(data.total, num(order.total))), subtotal = r2(num(data.subtotal, num(order.subtotal, total))), tax = r2(num(data.tax)), paid = r2(num(data.paid))
+        if (total < 0 || subtotal < 0 || tax < 0 || paid < 0 || paid > total) throw new Rejection(400, 'Invoice amounts must be non-negative and the paid amount cannot exceed the total.')
+        const [invoice] = await tx.insert(invoiceRecords).values({ orderId, invoiceNumber: text(data.invoiceNumber, 80) || `INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, subtotal: String(subtotal), tax: String(tax), total: String(total), paid: String(paid), status: paid >= total ? 'Paid' : paid > 0 ? 'Partially Paid' : 'Issued', issuedAt: new Date(), dueAt }).returning()
+        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: order.franchiseId, entityType: 'invoice', entityId: invoice.id, action: 'created', metadata: { orderId, total, paid, idempotencyKey: key } })
+        return { status: 201, body: invoice }
+      })
+      return respond(done, headers)
     }
 
     return Response.json({ error: 'Unknown fulfilment action.' }, { status: 400, headers })
   } catch (error) {
-    console.error(error)
-    const code = (error as { code?: string; cause?: { code?: string } })?.code ?? (error as { cause?: { code?: string } })?.cause?.code
-    if (code === '23505') return Response.json({ error: 'A matching record already exists, for example a settlement for the same franchise and period.' }, { status: 409, headers })
-    return Response.json({ error: 'Fulfilment operation failed.' }, { status: 500, headers })
+    return failure(error, headers, 'Fulfilment operation failed.')
   }
 }
 

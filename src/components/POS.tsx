@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Banknote, Boxes, CheckCircle2, ClipboardList, Plus, RefreshCw, ShoppingCart, Store, Wallet } from 'lucide-react'
 
 type Outlet={id:string;code:string;name:string;status:string;franchiseId?:string|null}
@@ -13,6 +13,9 @@ const post=async(action:string,data:Record<string,unknown>)=>{const r=await fetc
 export function POSWorkspace(){
  const [data,setData]=useState<Data>({outlets:[],shifts:[],sales:[],payments:[],ledger:[],reconciliations:[]})
  const [outletId,setOutletId]=useState(''); const [product,setProduct]=useState('Chicken'); const [qty,setQty]=useState('1'); const [price,setPrice]=useState('250'); const [method,setMethod]=useState('Cash'); const [countedCash,setCountedCash]=useState('0'); const [message,setMessage]=useState('')
+ // One idempotency key per sale attempt: a double click or a retry after a lost response replays the same sale instead of billing twice.
+ const pendingSale=useRef<{signature:string;key:string}|null>(null)
+ const saleKey=(signature:string)=>{if(pendingSale.current?.signature!==signature)pendingSale.current={signature,key:crypto.randomUUID()};return pendingSale.current.key}
  const load=async()=>{const r=await fetch('/api/pos');setData(await r.json())}
  useEffect(()=>{load()},[])
  const outlet=data.outlets.find(x=>x.id===outletId); const openShift=data.shifts.find(x=>x.outletId===outletId&&x.status==='Open')||null
@@ -41,7 +44,7 @@ export function POSWorkspace(){
    </div>
    <div className="button-row">
     {!openShift&&outlet&&<button className="primary-button" onClick={()=>run(async()=>{const r=await post('open-shift',{outletId,openingCash:0});void r})}><Plus size={15}/> Open shift</button>}
-    {openShift&&<button className="primary-button" onClick={()=>run(async()=>{await post('record-sale',{outletId,shiftId:openShift.id,items:[{product,quantity:Number(qty),unit:'kg',unitPrice:Number(price)}],idempotencyKey:`${openShift.id}-${Date.now()}`,payments:[{method,amount:Number(qty)*Number(price)}]})})}><ShoppingCart size={15}/> Record sale</button>}
+    {openShift&&<button className="primary-button" onClick={()=>run(async()=>{const sale={outletId,shiftId:openShift.id,items:[{product,quantity:Number(qty),unit:'kg',unitPrice:Number(price)}],payments:[{method,amount:Number(qty)*Number(price)}]};await post('record-sale',{...sale,idempotencyKey:saleKey(JSON.stringify(sale))});pendingSale.current=null})}><ShoppingCart size={15}/> Record sale</button>}
     {openShift&&<><label className="inline-field">Counted cash<input type="number" min="0" value={countedCash} onChange={e=>setCountedCash(e.target.value)}/></label><button className="text-button" onClick={()=>run(async()=>{await post('close-shift',{shiftId:openShift.id,countedCash:Number(countedCash)});})}><CheckCircle2 size={15}/> Close shift</button></>}
    </div>
    {message&&<div className="info-note">{message}</div>}
