@@ -1,0 +1,7 @@
+category,product,supplier_name,supplier_phone,supplier_email,supplier_status,vendor_type,location_town,distance_km,source_of_lead,quote_date,purchase_unit,unit,quote_unit_price_inr,price_basis,min_order_qty,quantity_for_quote,total_inr,gst_applicable,credit_days,payment_method,delivery_lead_time_hours,expected_delivery_days,spec_size_weight_range,qc_standard_notes,packaging_included,backup_capacity_per_day,fssai_licence_no,fssai_valid_until,vet_certificate_on_file,gst_number,bank_details_on_file,reference_checks_done,site_visit_date,score_price_stability,score_quality,score_documentation,score_credit,score_min_qty_flex,score_backup_capacity,score_location_logistics,weighted_score_100,decision,notes
+Broiler chicken,,,,,Active,,,,,,,kg,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Mutton,,,,,Active,,,,,,,kg,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Fish,,,,,Active,,,,,,,kg,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Prawns,,,,,Active,,,,,,,kg,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Eggs,,,,,Active,,,,,,,tray,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Packaging,,,,,Active,,,,,,,pcs,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
