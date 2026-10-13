@@ -111,6 +111,13 @@ test('franchise procurement traceability: request → PO → GRN → stock → d
   expect(grnResult.receipt.stockLotId).toBeTruthy()
   expect(grnResult.stockLot.id).toBe(grnResult.receipt.stockLotId)
 
+  // Received franchise stock lands in one of the franchise's POS outlets, so it needs one.
+  const outletResponse = await franchise.post('/api/pos', {
+    data: { action: 'create-outlet', data: { code: `E2E-${Date.now()}`.slice(0, 20), name: `${marker} Outlet`, franchiseId } }
+  })
+  expect(outletResponse.ok()).toBeTruthy()
+  const outlet = await outletResponse.json()
+
   const fulfilResponse = await company.post('/api/procurement', {
     data: {
       action: 'transfer-to-franchise',
@@ -120,7 +127,8 @@ test('franchise procurement traceability: request → PO → GRN → stock → d
         quantity,
         supplyRequestId: supplyRequest.id,
         purchaseOrderId: po.id,
-        goodsReceiptId: grnResult.receipt.id
+        goodsReceiptId: grnResult.receipt.id,
+        outletId: outlet.id
       }
     }
   })
@@ -133,7 +141,9 @@ test('franchise procurement traceability: request → PO → GRN → stock → d
     expect(row.supplyRequestId).toBe(supplyRequest.id)
     expect(row.purchaseOrderId).toBe(po.id)
     expect(row.goodsReceiptId).toBe(grnResult.receipt.id)
-    expect(row.stockLotId).toBe(grnResult.receipt.stockLotId)
+    // The franchise holds a child lot; the company lot it was cut from is sourceStockLotId.
+    expect(row.sourceStockLotId).toBe(grnResult.receipt.stockLotId)
+    expect(row.outletId).toBe(outlet.id)
   }
 
   const finalRequest = await franchise.get('/api/operations')
@@ -151,7 +161,7 @@ test('franchise procurement traceability: request → PO → GRN → stock → d
   expect(ledgerRows.every((r: any) =>
     r.purchaseOrderId === po.id &&
     r.goodsReceiptId === grnResult.receipt.id &&
-    r.stockLotId === grnResult.receipt.stockLotId
+    !!r.stockLotId
   )).toBeTruthy()
 
   await franchise.dispose()

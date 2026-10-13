@@ -63,7 +63,7 @@ describe('POS flow for a franchisee (#6, #9)', () => {
   })
 
   it('moves stock in, opens a shift and records a sale with the actor set', async () => {
-    assert.equal((await call(pos, fa, { action: 'transfer-stock', data: { outletId: outletA.id, product: 'Chicken', quantity: 20 } })).status, 201)
+    assert.equal((await call(pos, staff, { action: 'transfer-stock', data: { outletId: outletA.id, product: 'Chicken', quantity: 20 } })).status, 201)
     const open = await call(pos, fa, { action: 'open-shift', data: { outletId: outletA.id, openingCash: 500 } })
     assert.equal(open.status, 201)
     shiftA = open.json
@@ -117,7 +117,7 @@ describe('cross-franchise isolation', () => {
     assert.deepEqual(reads.json.sales, [])
     assert.equal((await call(pos, fb, { action: 'open-shift', data: { outletId: outletA.id } })).status, 404)
     assert.equal((await call(pos, fb, { action: 'record-sale', data: sale() })).status, 400)
-    assert.equal((await call(pos, fb, { action: 'transfer-stock', data: { outletId: outletA.id, product: 'Chicken', quantity: 1 } })).status, 400)
+    assert.equal((await call(pos, fb, { action: 'transfer-stock', data: { outletId: outletA.id, product: 'Chicken', quantity: 1 } })).status, 403)
     assert.ok(open)
   })
 
