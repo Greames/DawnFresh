@@ -341,7 +341,9 @@ export default async (req: Request) => {
     return Response.json({ error: 'Unknown POS action.' }, { status: 400, headers })
   } catch (e) {
     console.error(e)
-    return Response.json({ error: e instanceof Error ? e.message : 'POS operation failed.' }, { status: 500, headers })
+    const message = e instanceof Error ? e.message : 'POS operation failed.'
+    const status = /insufficient .*stock|stock changed|shift is no longer open|already closed|return quantity exceeds|outlet access changed/i.test(message) ? 409 : 500
+    return Response.json({ error: message }, { status, headers })
   }
 }
 
