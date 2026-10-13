@@ -433,3 +433,99 @@ Extra items for VelamFresh:
 Do you want the family name on the business even if an operator takes over later, and is a neutral brand with "a Velam family business" in the story an acceptable compromise?
 
 Sources added: https://ssrana.in/articles/protection-surname-trade-marks/, https://mondaq.com/india/trademark/1248372/protection-accorded-to-surname-trademarks-india, https://www.verdictum.in/delhi-high-court/ads-spirits-pvt-ltd-v-the-registrar-of-trade-marks-2026dhc5783-uniqueness-1618587, https://theindianlawyer.in/delhi-high-court-distinctiveness-under-section-91a-must-be-tested-qua-the-goods-not-on-a-standard-of-uniqueness/, https://www.storyboard18.com/quantum-brief/haldirams-how-a-small-sweet-shop-in-bikaner-became-a-global-snack-brand-13483.htm, https://wikipedia.com/wiki/Haldirams, https://atblegal.com/india/commercial-ip/franchising/, https://www.iiprd.com/franchising-as-a-form-of-trademark-licensing/, https://www.incorpx.io/blog/franchise-business-registration-india
+
+---
+
+# FreshScale
+
+Owner candidate, replacing TulaFresh. Constraints: includes "Fresh", neutral, chicken leads without the word "chicken", and the company owns the brand. **Not cleared.** IP India, MCA, domains, handles, app stores and Google Maps/Justdial are NOT CHECKED.
+
+## 1. Meaning and associations (judgement unless sourced)
+
+- **Weighing scale:** honest weight, fair measure; fits the Legal Metrology angle (verified, stamped scales; see `registrations.md`, A11). Same idea as "Tula" but in plain English, with no Sanskrit or religious layer, no surname and no community link. This is a clear advantage over TulaFresh (crowded Tula/Tulsi space), VelamFresh and Tulasi names.
+- **Other readings:** "scale" also means fish scale (fits fish and prawns, a mild plus or a mild oddity next to chicken), and "scale up" (growth; common startup and tech vocabulary, which suits a franchise growth story but also makes it sound like software). "FreshScale" may sound like a SaaS, cloud or analytics product (inference; the search showed "Fresh" is a heavy tech prefix, see section 3). A customer might also read it as "fresh weight", fine for meat.
+- **Chicken hint:** none. The chicken lead has to come from the logo and descriptor, as with DawnFresh and TulaFresh.
+- **Reading aloud (UNVERIFIED, test with speakers):** easy in English ("fresh-skale"). In Telugu, "స్కేల్" (skel) is a known loanword (also used for rulers and pay scales, general knowledge). "Scale" has no known offensive reading in Telugu, Hindi, Tamil or Kannada that I could verify; NOT CHECKED. Have speakers say it aloud.
+
+## 2. Logo idea
+
+A rooster standing on, or balancing on, a pair of scales (or a rooster whose comb forms the scale beam), with the descriptor "Fresh chicken & meats". A tagline such as "Honest weight. Fresh daily." (draft wording; check claims against actual practice before use). Avoid devotional imagery.
+
+## 3. Web search findings (Oct 2026)
+
+- Searches for "FreshScale" and "Fresh Scale" (software/app/brand, then food/meat/poultry/seafood/grocery India) found **no company, product, app or Indian food brand of that exact name**. Results showed only Freshworks (Freshdesk, Freshservice, Freshsales, Freshcaller; NASDAQ: FRSH; trademark index on justia.com lists FRESHDESK and FRESHSERVICE), FRESHfin (Berlin produce-wholesale software with weigh-in certificate features), and the usual Indian meat players (FreshToHome, Zappfresh, Freshpick).
+- Freshworks (HQ San Bruno, California, with offices in India) has a family of "Fresh___" software marks (Wikipedia-style facts from freshworks.com press release and ir.freshworks.com; US trademark list from Justia). A "Fresh" + business-word brand could draw attention from a company that uses a "Fresh" prefix across software; whether it would object to a meat brand in different classes is a legal question for the attorney, **UNVERIFIED**.
+- The search engine does not index IP India, domains, app stores or small local businesses, so no hit does not mean free.
+
+## 4. Trademark class overlap concerns (UNVERIFIED, for the attorney)
+
+- Core classes: 29 (meat, poultry, fish, eggs), 35 (retail, wholesale, distribution, franchising). Add 43 or 39 if relevant.
+- **Software/tech classes** 9 (software, apps), 42 (SaaS) and 38/41 where relevant: "FreshScale" could collide with an existing tech mark, and the owner may later want a branded app or storefront (the platform here already runs a public storefront). The attorney should search classes 9 and 42 for FreshScale, FreshScales, Fresh Scale, and also "Scale" marks with "Fresh" prefixes. A conflict in class 9/42 is less serious than one in 29/35 for a meat brand, but it can block an app name and domain.
+- Descriptiveness: "Fresh" is weak for food; "Scale" is arguably suggestive for weighed goods. The combination is likely registrable as a coined phrase but attorney should confirm (Section 9 distinctiveness; see surname section above for sources on the test).
+- Company ownership: the business entity should file the application, which fits the owner's requirement and avoids the surname ownership questions raised for VelamFresh.
+
+## 5. Spelling variants to search
+
+FreshScale, Fresh Scale, Fresh-Scale, Freshscale, FreshScales, Fresh Scales, FreshSkale, Fresh Skale, Fressh Scale, FreshScaal, and reversed ScaleFresh; also Telugu script (ఫ్రెష్ స్కేల్), Hindi (फ्रेश स्केल). Domains: freshscale.in and .com and common variants (freshscales, getfreshscale); handles on Instagram, Facebook, YouTube.
+
+## 6. Comparison
+
+| Name | Strengths | Weaknesses |
+|---|---|---|
+| FreshScale | Neutral; meaning (honest weight) clear in English; logo story; no religious/surname/community issue; company-owned; no hits in search | No chicken hint; sounds like software; "Fresh" prefix tech crowding (Freshworks); NOT CHECKED in IP India classes 29/35/9/42 |
+| TulaFresh | Sanskrit scales; "Tul" link | Tula/Tulsi crowded (including a Class 29 Tulsi application seen on Justia); Tulasi story carries sacred-plant risk if mentioned |
+| DawnFresh | Rooster at dawn; friendly; chicken-friendly imagery | "Dawn" common; US DAWN FRESH marks (gravy, prepared foods) not binding in India; "Don" sound |
+| FreshRoost | Clearest chicken hint | "Roast" phonetic neighbour (Class 43); common word |
+
+## 7. Recommendation (judgement, not clearance)
+
+If the owner has dropped TulaFresh because the Tulasi link cannot be used safely, **FreshScale is a credible first choice**: it is the cleanest on neutrality and ownership, and it carries the honest-weight story. Its two main risks are the software-sounding name (check classes 9/42 and Freshworks-style conflicts) and the lack of a chicken hint (solve with the rooster logo). **DawnFresh is the better choice if the owner wants a warmer, chicken-friendly feel**, and FreshRoost if the chicken hint matters most. Order suggested for the attorney: **FreshScale, DawnFresh, FreshRoost**, with TulaFresh kept as a reserve only if the owner still wants "Tul". The first name that passes becomes final by 25 Oct 2026. The attorney may reorder after the search.
+
+Final-three table (replaces the earlier one):
+
+| Rank | Name | Why | Main risks (all NOT CHECKED) |
+|---|---|---|---|
+| 1 | FreshScale | Neutral, honest-weight story, company-owned, no hits in web search | Sounds like software; Fresh-prefix tech crowding; no chicken hint |
+| 2 | DawnFresh | Rooster-at-dawn logo, warm | "Dawn" common; "Don" sound |
+| 3 | FreshRoost | Chicken hint | "Roast" conflict, Class 43 |
+| Reserve | TulaFresh, VelamFresh, FreshTrail, TulyaFresh, FreshCrest | See earlier sections | See earlier sections |
+
+## 8. CA / attorney checklist (current for FreshScale, DawnFresh, FreshRoost)
+
+Replace the TulaFresh column in the earlier pass/fail table with FreshScale. All other rows and the decision rule are unchanged, with these additions.
+
+1. **IP India wordmark search** for FreshScale: exact, phonetic and variants (section 5) in Classes 29 and 35; add 43/39 as relevant; **also Classes 9 and 42** (software/SaaS) and 38/41 if an app or content is planned. Record applicant, status, goods and class of similar marks; look especially for Freshworks-family and other "Fresh___" tech marks. DawnFresh and FreshRoost variants as in earlier checklists.
+2. **MCA name check:** SPICe+ Part A (company) or RUN-LLP (LLP).
+3. **Domains:** freshscale.in/.com and variants; also check Play Store and App Store for an existing "FreshScale" app.
+4. **Handles:** Instagram, Facebook page, YouTube (@handle), WhatsApp Business name.
+5. **Google Maps and Justdial:** each name in Andhra Pradesh and Telangana for meat, poultry, egg, fish, food and retail businesses; for FreshScale also weighing-scale and software businesses with the same name.
+6. **Language and sound check:** Telugu, Tamil, Kannada and Hindi speakers say each name aloud and write it in script; note offensive, comic or slang readings.
+7. **Ownership:** file in the company's name; confirm the company is the applicant.
+
+| Check | FreshScale | DawnFresh | FreshRoost |
+|---|---|---|---|
+| IP India class 29 exact | | | |
+| IP India class 35 exact | | | |
+| IP India phonetic and variants (29, 35) | | | |
+| IP India classes 9 / 42 (software) | | | n/a unless app planned |
+| IP India class 43 / 39 (if relevant) | | | |
+| MCA name check (entity type: ____) | | | |
+| .in domain | | | |
+| .com domain | | | |
+| App stores | | | |
+| Instagram handle | | | |
+| Facebook page name | | | |
+| YouTube handle | | | |
+| Google Maps/Justdial AP | | | |
+| Google Maps/Justdial Telangana | | | |
+| Language and meaning check | | | |
+| Overall: PASS / FAIL / NEEDS ATTORNEY ADVICE | | | |
+
+Mark PASS, FAIL (note conflicting name and owner) or UNSURE. A similar pending or registered mark in Class 29 or 35 is a FAIL until the attorney says otherwise. A software-class conflict is NEEDS ATTORNEY ADVICE. **Decision rule:** work down FreshScale, DawnFresh, FreshRoost. The first name with no FAIL on IP India and MCA and acceptable domain/handle results is final, by **25 Oct 2026**. File the trademark right after, and print nothing before filing. The attorney confirms in writing. Nothing here certifies any name as available.
+
+## Questions for the owner
+
+1. Is a software-like sound acceptable for FreshScale if the rooster logo carries the chicken message?
+2. Do you plan a branded app or software for franchisees (affects checking classes 9/42)?
+
+Sources: https://ir.freshworks.com/files/doc_news/2017/06/freshdesk_inc_is_now_freshworks_inc.pdf, https://trademark.justia.com/owners/freshworks-inc-3595665, https://www.freshplaza.com/north-america/article/2177368/freshfin-business-software-for-fruit-and-fresh-produce-wholesale/, https://www.marketingmonk.so/p/how-freshtohome-won-the-norganized-meat-market, https://gust.com/companies/zappfresh
