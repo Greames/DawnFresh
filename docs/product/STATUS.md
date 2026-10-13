@@ -10,9 +10,11 @@ Last review: 2026-10-13 (initial).
 ## Brand name (owner decision, 13 Oct)
 **TulaFresh** is the chosen name (tula = scales/balance; Tulasi kept as the private origin story; rooster-at-dawn/scales logo idea; descriptor "Fresh chicken & meats"). It is NOT cleared: IP India, MCA, domains, social handles and Google Maps/Justdial checks are still to be done by the owner/CA (checklist in `docs/dept/brand-name-options.md`). Fallbacks if it fails, in order: DawnFresh, FreshRoost. The app and docs still say FreshRoute until clearance; see the rename backlog issue.
 
+## Decided
+- Business day is IST (13 Oct). Timestamps stay UTC.
+
 ## Decisions needed from the owner
 1. Rasoinet eligibility (owner, 13 Oct): free while the restaurant pays at least Rs 1,00,000 every month, measured over the last 30 days, counting payments received. To confirm: grace period before access turns read-only (suggested), and whether refunds reduce the paid amount (suggested yes).
 2. Who supports the restaurant software after an operator takes over the meat business.
 3. Entity structure and final brand name.
-4. Business-day definition: IST or UTC.
 5. GST scope for invoices (confirm with the CA).

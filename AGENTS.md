@@ -47,7 +47,7 @@ Public checkout requests quotations through WhatsApp and never silently inserts 
 - Authentication is the app's own (`db/auth.ts`); do not reintroduce Netlify Identity or store plain-text or reversible passwords. Access is granted only by the server-side `app_users` table; there is no public signup. Keep at least one active admin. Settings and users & access require `admin`.
 - Validate numeric fields, status, required quantities and products, paid-versus-total amounts, coordinates, international phone format and batch expiry on the server as well as the form.
 - Maintain empty/loading/error states, keyboard navigation, focus handling, mobile layout and reduced-motion support. Preserve CSV formula-injection protection.
-- Use UTC calendar dates for consistent operational reporting. Show order value, unpaid balances and fulfilment separately; do not call booked order value profit.
+- Timestamps are stored in UTC. The operational business day (daily close, shift dates, KPI and daily reporting) is the IST (Asia/Kolkata, UTC+5:30) calendar date, by owner decision of 13 Oct 2026. Show order value, unpaid balances and fulfilment separately; do not call booked order value profit.
 - Keep secrets out of output, tracked files, client code and public configuration responses.
 - Schema changes require a generated migration in `netlify/database/migrations`. Keep `drizzle-orm` and `drizzle-kit` on the required `@beta` release line for the Netlify adapter.
 
