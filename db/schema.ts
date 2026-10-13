@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, jsonb, timestamp, index, integer } from 'drizzle-orm/pg-core'
+import { pgTable, text, uuid, jsonb, timestamp, index, integer, unique } from 'drizzle-orm/pg-core'
 
 export const franchises = pgTable('franchises', {
   id: uuid().defaultRandom().primaryKey(),
@@ -380,4 +380,5 @@ export const settlementRecords = pgTable('settlement_records', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, table => [
   index('settlement_records_franchise_period_idx').on(table.franchiseId, table.periodStart),
+  unique('settlement_records_franchise_period_unique').on(table.franchiseId, table.periodStart, table.periodEnd),
 ])

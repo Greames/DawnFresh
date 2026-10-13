@@ -291,10 +291,11 @@ export default async (req: Request) => {
       const expected = n(shift.openingCash) + cash
       const variance = counted - expected
       const rec = await db.transaction(async tx => {
-        await tx.update(posShifts).set({
+        const closed = await tx.update(posShifts).set({
           status: 'Closed', closedAt: new Date(), expectedCash: String(expected),
           countedCash: String(counted), cashVariance: String(variance),
-        }).where(eq(posShifts.id, shiftId))
+        }).where(and(eq(posShifts.id, shiftId), eq(posShifts.status, 'Open'))).returning({ id: posShifts.id })
+        if (!closed.length) return null
         const [row] = await tx.insert(posReconciliations).values({
           outletId: shift.outletId, shiftId, businessDate: new Date(), grossSales: String(grossSales),
           returns: String(returnTotal), discounts: String(discounts), tax: String(tax), netSales: String(netSales),
@@ -309,6 +310,7 @@ export default async (req: Request) => {
         })
         return row
       })
+      if (!rec) return Response.json({ error: 'This shift was already closed.' }, { status: 409, headers })
       return Response.json(rec, { status: 201, headers })
     }
 

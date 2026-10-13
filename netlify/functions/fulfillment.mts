@@ -236,6 +236,8 @@ export default async (req: Request) => {
     return Response.json({ error: 'Unknown fulfilment action.' }, { status: 400, headers })
   } catch (error) {
     console.error(error)
+    const code = (error as { code?: string; cause?: { code?: string } })?.code ?? (error as { cause?: { code?: string } })?.cause?.code
+    if (code === '23505') return Response.json({ error: 'A matching record already exists, for example a settlement for the same franchise and period.' }, { status: 409, headers })
     return Response.json({ error: 'Fulfilment operation failed.' }, { status: 500, headers })
   }
 }

@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, numeric, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, uuid, timestamp, numeric, index, unique } from 'drizzle-orm/pg-core'
 import { franchises, appUsers, customers, stockLots } from './schema.js'
 
 export const posOutlets = pgTable('pos_outlets', {
@@ -95,7 +95,10 @@ export const posReconciliations = pgTable('pos_reconciliations', {
   status: text().notNull().default('Open'),
   closedBy: uuid('closed_by').references(() => appUsers.id),
   closedAt: timestamp('closed_at', { withTimezone: true }),
-}, table => [index('pos_reconciliation_outlet_date_idx').on(table.outletId, table.businessDate)])
+}, table => [
+  index('pos_reconciliation_outlet_date_idx').on(table.outletId, table.businessDate),
+  unique('pos_reconciliations_shift_unique').on(table.shiftId),
+])
 
 export const outletStockLedger = pgTable('outlet_stock_ledger', {
   id: uuid().defaultRandom().primaryKey(),

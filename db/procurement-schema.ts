@@ -1,4 +1,5 @@
-import { pgTable, text, uuid, timestamp, numeric, index } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { pgTable, text, uuid, timestamp, numeric, index, check } from 'drizzle-orm/pg-core'
 import { franchises, appUsers, stockLots } from './schema.js'
 
 export const suppliers = pgTable('suppliers', {
@@ -37,7 +38,10 @@ export const goodsReceipts = pgTable('goods_receipts', {
   batchCode: text('batch_code').notNull(),
   receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
   receivedBy: uuid('received_by').references(() => appUsers.id),
-}, table => [index('goods_receipts_po_idx').on(table.purchaseOrderId)])
+}, table => [
+  index('goods_receipts_po_idx').on(table.purchaseOrderId),
+  check('goods_receipts_quantities_check', sql`${table.receivedQuantity} >= 0 AND ${table.acceptedQuantity} >= 0 AND ${table.rejectedQuantity} >= 0 AND ${table.acceptedQuantity} <= ${table.receivedQuantity}`),
+])
 
 export const supplierInvoices = pgTable('supplier_invoices', {
   id: uuid().defaultRandom().primaryKey(),
@@ -49,7 +53,10 @@ export const supplierInvoices = pgTable('supplier_invoices', {
   status: text().notNull().default('Issued'),
   issuedAt: timestamp('issued_at', { withTimezone: true }).defaultNow().notNull(),
   dueAt: timestamp('due_at', { withTimezone: true }),
-}, table => [index('supplier_invoices_supplier_status_idx').on(table.supplierId, table.status)])
+}, table => [
+  index('supplier_invoices_supplier_status_idx').on(table.supplierId, table.status),
+  check('supplier_invoices_paid_check', sql`${table.paid} >= 0 AND ${table.paid} <= ${table.total}`),
+])
 
 export const supplierPayments = pgTable('supplier_payments', {
   id: uuid().defaultRandom().primaryKey(),
@@ -80,4 +87,5 @@ export const franchiseStockLedger = pgTable('franchise_stock_ledger', {
   index('franchise_stock_ledger_franchise_product_idx').on(table.franchiseId, table.product, table.createdAt),
   index('franchise_stock_ledger_ref_idx').on(table.referenceType, table.referenceId),
   index('franchise_stock_ledger_supply_request_idx').on(table.supplyRequestId, table.createdAt),
+  check('franchise_stock_ledger_balance_check', sql`${table.balanceAfter} >= 0`),
 ])
