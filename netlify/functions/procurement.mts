@@ -1,5 +1,5 @@
 import type { Config } from '@netlify/functions'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { auditEvents, franchises, records, stockLots } from '../../db/schema.js'
 import { franchiseStockLedger, goodsReceipts, purchaseOrders, supplierInvoices, supplierPayments, suppliers } from '../../db/procurement-schema.js'

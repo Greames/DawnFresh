@@ -1,17 +1,15 @@
 import type { Config } from '@netlify/functions'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import {
   auditEvents, customerAddresses, customerOrderItems, customerOrders, dispatchLoads, deliveryRoutes, deliveryStops,
-  drivers, invoiceRecords, labels, packageItems, packages, paymentRecords, processingBatches,
+  drivers, invoiceRecords, labels, packages, paymentRecords, processingBatches,
   productionOrders, proofOfDelivery, qcChecks, settlementRecords, stockLots, vehicles
 } from '../../db/schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
+import type { Access } from '../../db/access.js'
 
 const products = ['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns']
-const productionStatuses = ['Planned', 'Processing', 'Quality Check', 'Completed', 'Rejected']
-const routeStatuses = ['Planned', 'Loading', 'Loaded', 'Out for delivery', 'Completed', 'Cancelled']
-const stopStatuses = ['Planned', 'Loaded', 'Out for delivery', 'Delivered', 'Failed', 'Rescheduled']
 
 function num(value: unknown, fallback = 0) {
   const n = Number(value)
@@ -20,7 +18,7 @@ function num(value: unknown, fallback = 0) {
 function text(value: unknown, max = 1000) {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
 }
-function franchiseAllowed(access: Awaited<ReturnType<typeof resolveAccess>>, franchiseId?: string | null) {
+function franchiseAllowed(access: Access, franchiseId?: string | null) {
   return access.role !== 'franchisee' || (!!franchiseId && access.franchise?.id === franchiseId)
 }
 

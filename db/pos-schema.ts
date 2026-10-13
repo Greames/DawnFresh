@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, integer, numeric, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, uuid, timestamp, numeric, index } from 'drizzle-orm/pg-core'
 import { franchises, appUsers, customers, stockLots } from './schema.js'
 
 export const posOutlets = pgTable('pos_outlets', {

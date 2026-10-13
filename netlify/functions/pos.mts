@@ -4,15 +4,17 @@ import { db } from '../../db/index.js'
 import { auditEvents, invoiceRecords, paymentRecords, stockLots } from '../../db/schema.js'
 import { outletStockLedger, posOutlets, posPayments, posReconciliations, posReturns, posSaleItems, posSales, posShifts } from '../../db/pos-schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
+import type { Access } from '../../db/access.js'
 
 const products = ['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns']
 const methods = ['Cash', 'UPI', 'Card', 'Credit']
 const n = (v: unknown, d = 0) => { const x = Number(v); return Number.isFinite(x) ? x : d }
 const s = (v: unknown, m = 500) => typeof v === 'string' ? v.trim().slice(0, m) : ''
-const scope = (access: Awaited<ReturnType<typeof resolveAccess>>, franchiseId?: string | null) =>
+const scope = (access: Access, franchiseId?: string | null) =>
   access.role !== 'franchisee' || (!!franchiseId && access.franchise?.id === franchiseId)
 
-const latestBalance = async (tx: any, outletId: string, product: string) => {
+type Executor = Pick<typeof db, 'select'>
+const latestBalance = async (tx: Executor, outletId: string, product: string) => {
   const [last] = await tx.select().from(outletStockLedger)
     .where(and(eq(outletStockLedger.outletId, outletId), eq(outletStockLedger.product, product)))
     .orderBy(desc(outletStockLedger.createdAt)).limit(1)
@@ -160,7 +162,7 @@ export default async (req: Request) => {
 
         for (const item of items) {
           const product = s(item.product, 80), qty = n(item.quantity)
-          const balance = await latestBalance(tx as typeof db, outletId, product)
+          const balance = await latestBalance(tx, outletId, product)
           await tx.insert(outletStockLedger).values({
             outletId, product, stockLotId: item.stockLotId ? s(item.stockLotId, 80) : null,
             movementType: 'Sale', quantity: String(-qty), referenceType: 'POS_SALE',
@@ -205,7 +207,7 @@ export default async (req: Request) => {
           if (!lot || n(lot.quantity) < allocation.quantity) throw new Error(`Stock changed while transferring ${product}. Please retry.`)
           const newQty = n(lot.quantity) - allocation.quantity
           await tx.update(stockLots).set({ quantity: String(newQty), status: newQty > 0 ? 'Available' : 'Depleted', updatedAt: new Date() }).where(eq(stockLots.id, lot.id))
-          const currentOutletBalance = await latestBalance(tx as typeof db, outletId, product)
+          const currentOutletBalance = await latestBalance(tx, outletId, product)
           const [row] = await tx.insert(outletStockLedger).values({
             outletId, product, stockLotId: lot.id, movementType: 'TransferIn', quantity: String(allocation.quantity),
             referenceType: s(data.referenceType, 50) || 'STOCK_TRANSFER', referenceId: data.referenceId ? s(data.referenceId, 80) : null,
@@ -241,7 +243,7 @@ export default async (req: Request) => {
         const [ret] = await tx.insert(posReturns).values({
           saleId, itemId, quantity: String(qty), amount: String(refundAmount), reason: s(data.reason, 300) || null,
         }).returning()
-        const balance = await latestBalance(tx as typeof db, sale.outletId, item.product)
+        const balance = await latestBalance(tx, sale.outletId, item.product)
         await tx.insert(outletStockLedger).values({
           outletId: sale.outletId, product: item.product, stockLotId: item.stockLotId,
           movementType: 'Return', quantity: String(qty), referenceType: 'POS_RETURN',

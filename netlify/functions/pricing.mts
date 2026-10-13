@@ -23,6 +23,7 @@ function calculate(i:{liveWeightKg:number;supplierPricePerKg:number;standardYiel
   const yieldVariancePct=actualYieldPct===null?null:actualYieldPct-i.standardYieldPct
   return {billableWeightKg,supplierCost,landedCost,franchiseValue,grossMargin,grossMarginPct,actualYieldPct,yieldVariancePct}
 }
+function outputKg(b:any){return b.actualOutputKg===undefined?undefined:num(b.actualOutputKg,0)}
 function inputs(b:any){
   const live=num(b.liveWeightKg,.001),supplier=num(b.supplierPricePerKg),yieldPct=num(b.standardYieldPct,.001,100),logistics=num(b.logisticsCostPerKg),other=num(b.otherCostPerKg),company=num(b.companyPricePerKg)
   if([live,supplier,yieldPct,logistics,other,company].some(v=>v===null)) return null
@@ -44,13 +45,13 @@ export default async (req:Request)=>{
   const b=await req.json()
   if(!b||typeof b.action!=='string')return Response.json({error:'Action is required.'},{status:400,headers})
   if(b.action==='calculate'){
-   const i=inputs(b); if(!i)return Response.json({error:'Check weight, prices, costs and yield.'},{status:400,headers})
-   return Response.json({ok:true,result:calculate({...i,actualOutputKg:b.actualOutputKg===undefined?undefined:num(b.actualOutputKg,0)})},{headers})
+   const i=inputs(b),out=outputKg(b); if(!i||out===null)return Response.json({error:'Check weight, prices, costs, yield and actual output.'},{status:400,headers})
+   return Response.json({ok:true,result:calculate({...i,actualOutputKg:out})},{headers})
   }
   if(b.action==='create-scenario'){
-   const i=inputs(b); if(!i||!b.name||!products.includes(String(b.product)))return Response.json({error:'Complete all scenario inputs.'},{status:400,headers})
-   const r=calculate({...i,actualOutputKg:b.actualOutputKg===undefined?undefined:num(b.actualOutputKg,0)})
-   const [row]=await db.insert(pricingScenarios).values({name:String(b.name).slice(0,180),product:String(b.product),processingType:String(b.processingType||'Standard').slice(0,100),supplierName:String(b.supplierName||'Supplier').slice(0,180),liveWeightKg:String(i.liveWeightKg),supplierPricePerKg:String(i.supplierPricePerKg),standardYieldPct:String(i.standardYieldPct),logisticsCostPerKg:String(i.logisticsCostPerKg),otherCostPerKg:String(i.otherCostPerKg),companyPricePerKg:String(i.companyPricePerKg),billableWeightKg:String(r.billableWeightKg),supplierCost:String(r.supplierCost),landedCost:String(r.landedCost),franchiseValue:String(r.franchiseValue),grossMargin:String(r.grossMargin),grossMarginPct:String(r.grossMarginPct),actualOutputKg:b.actualOutputKg===undefined?null:String(num(b.actualOutputKg,0)),actualYieldPct:r.actualYieldPct===null?null:String(r.actualYieldPct),yieldVariancePct:r.yieldVariancePct===null?null:String(r.yieldVariancePct),createdBy:access.account.id}).returning()
+   const i=inputs(b),out=outputKg(b); if(!i||out===null||!b.name||!products.includes(String(b.product)))return Response.json({error:'Complete all scenario inputs.'},{status:400,headers})
+   const r=calculate({...i,actualOutputKg:out})
+   const [row]=await db.insert(pricingScenarios).values({name:String(b.name).slice(0,180),product:String(b.product),processingType:String(b.processingType||'Standard').slice(0,100),supplierName:String(b.supplierName||'Supplier').slice(0,180),liveWeightKg:String(i.liveWeightKg),supplierPricePerKg:String(i.supplierPricePerKg),standardYieldPct:String(i.standardYieldPct),logisticsCostPerKg:String(i.logisticsCostPerKg),otherCostPerKg:String(i.otherCostPerKg),companyPricePerKg:String(i.companyPricePerKg),billableWeightKg:String(r.billableWeightKg),supplierCost:String(r.supplierCost),landedCost:String(r.landedCost),franchiseValue:String(r.franchiseValue),grossMargin:String(r.grossMargin),grossMarginPct:String(r.grossMarginPct),actualOutputKg:out===undefined?null:String(out),actualYieldPct:r.actualYieldPct===null?null:String(r.actualYieldPct),yieldVariancePct:r.yieldVariancePct===null?null:String(r.yieldVariancePct),createdBy:access.account.id}).returning()
    return Response.json({scenario:row,result:r},{headers})
   }
   if(b.action==='create-config'){
