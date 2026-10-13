@@ -50,7 +50,7 @@ export default async (req: Request) => {
     const body = await req.json()
     const action = s(body?.action, 80)
     const data = body?.data && typeof body.data === 'object' ? body.data : {}
-    const actor = access.id
+    const actor = access.account.id
 
     if (action === 'create-outlet') {
       if (!allowed(access, 'outlets', 'edit')) return Response.json({ error: 'Outlet edit access is required.' }, { status: 403, headers })
@@ -274,16 +274,15 @@ export default async (req: Request) => {
       const [outlet] = await db.select().from(posOutlets).where(eq(posOutlets.id, shift.outletId))
       if (!outlet || !scope(access, outlet.franchiseId)) return Response.json({ error: 'Outlet access denied.' }, { status: 403, headers })
       const rows = await db.select().from(posPayments).innerJoin(posSales, eq(posPayments.saleId, posSales.id)).where(eq(posSales.shiftId, shiftId))
-      const cash = rows.filter(r => r.posPayments.method === 'Cash').reduce((a, r) => a + n(r.posPayments.amount), 0)
-      const upi = rows.filter(r => r.posPayments.method === 'UPI').reduce((a, r) => a + n(r.posPayments.amount), 0)
-      const card = rows.filter(r => r.posPayments.method === 'Card').reduce((a, r) => a + n(r.posPayments.amount), 0)
-      const credit = rows.filter(r => r.posPayments.method === 'Credit').reduce((a, r) => a + n(r.posPayments.amount), 0)
+      const cash = rows.filter(r => r.pos_payments.method === 'Cash').reduce((a, r) => a + n(r.pos_payments.amount), 0)
+      const upi = rows.filter(r => r.pos_payments.method === 'UPI').reduce((a, r) => a + n(r.pos_payments.amount), 0)
+      const card = rows.filter(r => r.pos_payments.method === 'Card').reduce((a, r) => a + n(r.pos_payments.amount), 0)
+      const credit = rows.filter(r => r.pos_payments.method === 'Credit').reduce((a, r) => a + n(r.pos_payments.amount), 0)
       const sales = await db.select().from(posSales).where(eq(posSales.shiftId, shiftId))
       const grossSales = sales.reduce((a, r) => a + n(r.subtotal) + n(r.tax), 0)
       const discounts = sales.reduce((a, r) => a + n(r.discount), 0)
       const tax = sales.reduce((a, r) => a + n(r.tax), 0)
-      const returns = (await db.select().from(posReturns).where(eq(posReturns.saleId, sales[0]?.id || '00000000-0000-0000-0000-000000000000'))).reduce((a, r) => a + n(r.amount), 0)
-      const allReturnRows = sales.length ? (await Promise.all(sales.map(x => db.select().from(posReturns).where(eq(posReturns.saleId, x.id)))).flat()) : []
+      const allReturnRows = sales.length ? (await Promise.all(sales.map(x => db.select().from(posReturns).where(eq(posReturns.saleId, x.id))))).flat() : []
       const returnTotal = allReturnRows.reduce((a, r) => a + n(r.amount), 0)
       const netSales = sales.reduce((a, r) => a + n(r.total), 0) - returnTotal
       const counted = n(data.countedCash)
