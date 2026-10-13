@@ -8,7 +8,7 @@ Last review: 2026-10-13 (initial).
 - Department playbooks: `docs/dept/`.
 
 ## Decisions needed from the owner
-1. Rasoinet eligibility (owner, 13 Oct): free from the month after a restaurant crosses Rs 1,00,000 of business, and free while it keeps doing business with us. To confirm: is the threshold one month or cumulative; what counts as still doing business (suggested: a delivered order in the last 60 days); what counts as business (suggested: delivered orders net of returns).
+1. Rasoinet eligibility (owner, 13 Oct): free while the restaurant pays at least Rs 1,00,000 every month, measured over the last 30 days, counting payments received. To confirm: grace period before access turns read-only (suggested), and whether refunds reduce the paid amount (suggested yes).
 2. Who supports the restaurant software after an operator takes over the meat business.
 3. Entity structure and final brand name.
 4. Business-day definition: IST or UTC.
