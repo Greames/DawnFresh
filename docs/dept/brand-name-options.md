@@ -163,6 +163,8 @@ Mark each cell PASS, FAIL (note the conflicting name and owner) or UNSURE. A sim
 
 # Tul options
 
+> Superseded in part: see "Tulasi subsection", "VelamFresh" and "Current final three and checklist" at the end of this file, which replace the earlier final-three tables and checklists.
+
 Owner constraints now: the name must include **"Tul"** and **"Fresh"**, be neutral (not tied to Proddatur or the Telugu region), and let chicken lead without the word "chicken". **No name here is cleared.** IP India, MCA, domains, handles, Google Maps/Justdial are NOT CHECKED for all of them.
 
 ## What "Tul" can mean (from search and general knowledge)
@@ -252,3 +254,120 @@ Mark each cell PASS, FAIL (note the conflicting name and owner) or UNSURE. A sim
 3. If "Tul" is optional after all, should DawnFresh become the lead?
 
 Sources for this section: https://www.wisdomlib.org/definition/tula, https://www.shabdkosh.com/dictionary/sanskrit-english/balance/balance-meaning-in-sanskrit, https://astromedha.in/insights/vedic/tula-rashi, https://www.restaurantindia.in/news/tulsi-opens-third-pure-vegetarian-restaurant-at-spectrum-mall-noida.n16981, https://www.ireland-guide.com/establishment/tulsi.4545.html, https://www.zabihah.com/chn/nz/qJEuDgiuRb, https://www.opole.pl/en/print/pdf/node/323, https://www.foodtechbiz.com/business-updates/freshtohome-announces-massive-expansion-in-telangana-and-ap-with-40-new-cities, https://apps.apple.com/app/id1236186604, https://test.uniindia.com/country-chicken-co-launches-premium-experience-store-in-hyderabad/south/news/3851516.html
+
+---
+
+# Tulasi subsection (owner: "Tul" stands for "Tulasi")
+
+**No name is cleared.** All IP India, MCA, domain, handle, Google Maps/Justdial checks are NOT CHECKED.
+
+## 1. Spelling variants to search (IP India phonetic search, domains, handles)
+
+Tulasi, Tulsi, Thulasi, Thulsi, Tulasee, Tulassi, Tulaasi, Tulasy, Tulsy, and the short forms Tula, Tulaa, Thula, Tul, Thul, Tool. Combine each with Fresh, Fressh and Freshh, as one word, two words and hyphenated. Also search the Telugu script (తులసి), Hindi (तुलसी), Tamil (துளசி) and Kannada (ತುಳಸಿ) renderings in IP India and Google (script spellings from general knowledge, UNVERIFIED; the attorney should confirm). Register or reserve domains and handles for the main two or three spellings, since customers will type any of them.
+
+## 2. Crowding (evidence)
+
+Tulsi/Tulasi is heavily used. Search results showed: a Tulsi vegetarian restaurant chain (Delhi NCR/Gurugram/Noida), Tulsi-named restaurants in Ireland, Poland and New Zealand, Organic India's tulsi teas (Tata Consumer), Tulsi Indian Grocery (California), Sri Tulasi Consumer Products (Hyderabad spices, "Sree Kaaram" brand), Tulasi Exports (Chengalpattu, chilli/turmeric/coffee), tulasi powder and juice sellers, and a "TULSI ROYAL KHAJOOR PLUS" trademark application in **Class 29** on the Justia listing (status and applicant location not confirmed). Sources: restaurantindia.in, ireland-guide.com, globallinker.com, indiamart.com, trademark.justia.com. A search for "TulasiFresh, Tulasi Fresh, FreshTulasi, Thulasi Fresh, Tulasee Fresh" found no brand of those names, only holy-basil products, a basil garland seller and a 2007 Telugu film titled "Tulasi". Absence of hits means nothing for clearance. Expect many Tulsi/Tulasi registrations in Classes 29, 30, 31, 35 and 43 (NOT CHECKED). A shared, common-word root means the mark would be weak, and owners of earlier Tulsi marks may oppose.
+
+## 3. Sacred-plant sensitivity (honest assessment)
+
+- **Evidence that Tulasi is sacred:** Sources describe Tulsi as occupying a special place in almost every Hindu household, as worshipped in rituals, and as ceremonially married to Vishnu at Tulsi Vivah (freepressjournal.in, shubhpanchang.com, icharchive.intach.org, muhuratam.in).
+- **Evidence of backlash against religiously named meat shops in India:** 2023: "Jai Ambe Jhatka Meat Shop" banner in Lucknow, protest, name changed; "Ram meat shop" in Delhi, banner removed after online photos and pressure (Organiser, a right-leaning outlet, so treat framing with care); 2024: Navi Mumbai meat shop sealed by police after a religious name was reportedly written on a goat (Deccan Herald, The Week/PTI). Also reports of Reliance stopping meat sales in 2013 after customer hesitancy, and Navratri-time meat shop closures (Gulf News, Sabrang India, an advocacy outlet). These cases mostly involve deity names, not a plant name, so they are an analogy, not proof that a "Tulasi" brand would be targeted. I found no case of a meat brand called Tulasi being targeted.
+- **What this search did not establish:** whether Tulasi-worshipping households avoid non-vegetarian food, and how common a complaint would be. The results did not address diet. A Tulsi-branded vegetarian restaurant chain exists, so many customers may associate the name with vegetarian food (inference, UNVERIFIED).
+- **Honest risk reading:** Low probability but high cost event. A complaint on social media or to the municipality can hit a young brand and a franchise network hardest, and franchisees in other states would carry the reputation risk. The risk is greatest for any logo or ad that puts a basil leaf, a Tulasi plant or a deity-like image next to meat.
+- **If Tulasi is the owner's own or a family name:** this lowers the risk of the owner being accused of deliberate disrespect, and many people carry the name Tulasi (it is a common given name and film title in Telugu, based on the 2007 film result and general knowledge). It does not remove the issue for franchisees or customers who do not know the owner, and it does not change trademark crowding. I make no assumption beyond what the owner said (that "Tul" stands for Tulasi). The owner should decide whether it is a personal name, a family name or the plant.
+
+## 4. Recommendation
+
+- **Primary pick: TulaFresh**, with "Tulasi" kept only as a private origin if the owner wishes. "Tula" is a common Sanskrit word for scales/balance (wisdomlib.org, shabdkosh), which gives an honest-weight story that works in every state and keeps the "Tul" sound, with less religious exposure than Tulasi or Tulsi. Do not describe the name as derived from the sacred plant in public marketing, which would reintroduce the risk. If the owner wants a family-name story, use wording such as "named in memory of a family member" only if true.
+- **Stylised option:** "Tul·Fresh" or a "T" monogram formed by a rooster on scales; but "TulFresh" is less distinctive and may sound like "tool". Avoid TulasiFresh, Tulasi Fresh and FreshTulasi as the main brand: crowded, sacred-name risk.
+- **Logo ideas:** rooster standing on a balance (scales) at sunrise; clean wordmark with the descriptor "Fresh chicken & meats". Avoid basil leaf motifs, green wreaths or devotional imagery.
+- Caveat: these are judgement calls from limited sources. The owner should talk to a few customers and the CA/attorney.
+
+---
+
+# VelamFresh
+
+Owner candidate. **Not cleared; not recommended on current evidence.**
+
+## 1. Meanings and community link
+
+- **Velama** is a Hindu caste found mainly in Andhra Pradesh and Telangana; the Telangana government classifies it as a forward caste (Wikipedia/Velama and mirrors; Joshua Project describes Velamas as a Telugu-speaking farming community). A related subgroup is Koppula Velama (Wikipedia).
+- **Etymology:** not settled. A 1998 Indology mailing-list thread cites the Dravidian Etymological Dictionary for a Tamil word and a Telugu entry for the Velama caste and calls the popular story folk etymology (informal source). I found no source for what "Velam" itself means in Telugu or Tamil as a standalone word. **NOT CHECKED:** Telugu/Tamil/Kannada/Hindi dictionary meanings of "Velam".
+- **Place names:** Velamamidi (Anakapalli district, AP) and Velamjala (Nalgonda district, Telangana) appear as places; "Velam" occurs inside several Telugu village names and surnames (surname use: general knowledge, UNVERIFIED).
+- **Honest reading of community-tie risk:** To Telugu speakers, "Velam/Velama" is most likely to be recognised as a community name or surname. A brand called Velam could therefore be read as belonging to, or being marketed to, one community, whatever the owner intends (and I assume nothing about intent). That conflicts with the owner's constraint of being neutral and not tied to the Telugu region. For franchise recruitment outside the Telugu states the name is just an unfamiliar word; inside, it may attract franchisees and customers of one community and put off others, or draw "caste brand" commentary. Customers of all communities should feel the brand is for them; a community-linked name is a commercial risk for a mass-market meat brand. No evidence was found of a specific backlash against a "Velam" food brand, so this is judgement, not evidence of harm.
+- If Velam is a personal or family surname or a village name, the story can be legitimate, but a surname brand still reads as community-linked in Andhra Pradesh and Telangana.
+
+## 2. Spelling variants to search
+
+Velam, Velama, Velamma, Velem, Velam(a), Vellam (also means jaggery in Tamil, general knowledge UNVERIFIED), Welam, Velaam, Velham; plus Fresh, Fressh, Freshh as one word, two words, hyphenated; Telugu script (వెలం, వెలమ) and Tamil/Devanagari renderings. Domains and handles: reserve the main spellings, check Instagram, Facebook, YouTube.
+
+## 3. Web search
+
+One search of "VelamFresh, Velam Fresh, Velama Fresh, Velamma Fresh" found no brand of these names; results showed only Zappfresh, Licious, Republic of Chicken, FreshToHome. A search for Sri Velam brands, villages and trademarks found no food or poultry brand, only community and place-name results. The search engine does not index small shops or trademark registers, so this does not clear the name.
+
+## 4. NOT CHECKED
+
+IP India (Classes 29, 35, 43/39; phonetic and the variants above); MCA name check; .in and .com domains; Instagram, Facebook, YouTube handles; Google Maps/Justdial in AP and Telangana; Telugu/Tamil/Kannada/Hindi dictionary meanings; real customer reaction.
+
+## 5. Ranking
+
+Below TulaFresh, DawnFresh and FreshRoost because of the neutrality problem; it also lacks a chicken hint. Keep it only if the owner explains what Velam stands for and accepts the community reading.
+
+---
+
+# Current final three and checklist (supersedes earlier tables)
+
+| Rank | Name | Why | Main risks (all trademarks NOT CHECKED) |
+|---|---|---|---|
+| 1 | **TulaFresh** (variants TulFresh, FreshTula, and Tulasi spellings searched but not used as the brand) | Keeps the "Tul" sound; Sanskrit "scales" story; neutral; rooster-on-scales logo | "Tula" common; crowded Tulsi/Tula marks (including a Class 29 Tulsi application seen on Justia); Fresh is weak |
+| 2 | **DawnFresh** | Rooster at dawn; descriptor "Fresh chicken & meats" | "Dawn" common; US "DAWN FRESH" (gravy) and "DAWN'S FRESH FOODS" marks, not binding in India; "Don" sound |
+| 3 | **FreshRoost** | Clearest chicken hint | "Roast" phonetic neighbour (Class 43); common word |
+| Not recommended | TulasiFresh / Tulasi Fresh / FreshTulasi | Owner's origin | Crowded; sacred-plant sensitivity for a meat brand |
+| Not recommended (pending owner answer) | VelamFresh | Owner candidate | Community-linked reading, not neutral; no chicken hint |
+
+Reserve: TulyaFresh, FreshTrail, FreshCrest.
+
+## One-page CA / trademark attorney checklist (current)
+
+Client: DawnFresh owner. Products: fresh chicken (lead), mutton, eggs, fish, prawns; retail, B2B distribution, franchise network. Based in Proddatur, AP; the brand must work in other states. Entity: LLP or Pvt Ltd (decision due 25 Oct).
+
+1. **IP India wordmark search** (ipindiaonline.gov.in/tmrpublicsearch): exact, phonetic and variants. One class per search; Classes 29 and 35; add 43 (restaurant/cloud kitchen) and 39 (delivery) if relevant.
+   - TulaFresh: Tula, Tulaa, Thula, Tul, Tool, Tulya, plus Tulasi, Tulsi, Thulasi, Tulasee, Tulassi in Classes 29 and 35, with Fresh/Fressh/Freshh; also script forms.
+   - DawnFresh: Dawn, Dawne, Don, Dhawn.
+   - FreshRoost: Roost, Roast, Rust, Roste.
+   - If the owner insists on Tulasi or Velam: add the variant lists in the Tulasi and VelamFresh subsections.
+   Record applicant, status (registered, pending, objected, abandoned), goods, class and filing date of similar marks. Ask about a Vienna-code device search for rooster, scales and sunrise.
+2. **MCA name check** for the entity type: SPICe+ Part A (company) or RUN-LLP (LLP).
+3. **Domains:** .in and .com, plus misspellings and the main spelling variants.
+4. **Handles:** Instagram, Facebook page, YouTube (@handle), WhatsApp Business name.
+5. **Google Maps and Justdial:** each name and variant in Andhra Pradesh and Telangana (and neighbouring states if budget allows) for meat, poultry, egg, fish, food, retail, and spice/wellness (for Tulsi) businesses.
+6. **Language and sensitivity check:** Telugu, Tamil, Kannada and Hindi speakers of different communities say each name aloud and write it in script; note offensive, comic or slang readings, community or religious associations.
+
+| Check | TulaFresh | DawnFresh | FreshRoost |
+|---|---|---|---|
+| IP India class 29 exact | | | |
+| IP India class 35 exact | | | |
+| IP India phonetic and variants (29, 35) | | | |
+| IP India class 43 / 39 (if relevant) | | | |
+| MCA name check (entity type: ____) | | | |
+| .in domain | | | |
+| .com domain | | | |
+| Instagram handle | | | |
+| Facebook page name | | | |
+| YouTube handle | | | |
+| Google Maps/Justdial AP | | | |
+| Google Maps/Justdial Telangana | | | |
+| Language, meaning, community/religion sensitivity check | | | |
+| Overall: PASS / FAIL / NEEDS ATTORNEY ADVICE | | | |
+
+Mark PASS, FAIL (note the conflicting name and owner) or UNSURE. A similar pending or registered mark in Class 29 or 35 is a FAIL until the attorney says otherwise. Taken domains or handles can use a modifier; a Class 29/35 conflict cannot.
+
+**Decision rule:** work down TulaFresh, DawnFresh, FreshRoost. The first name with no FAIL on IP India and MCA and acceptable domain/handle results becomes final, decided by **25 Oct 2026**. If all fail, bring TulyaFresh, FreshTrail, FreshCrest. File the trademark right after the decision; no signage, labels or packaging before filing. The attorney confirms the choice in writing. Nothing here certifies any name as available.
+
+## Questions for the owner
+
+1. What does "Velam" stand for (a person, family, village, the community)? Are you comfortable if customers read it as a community name?
+2. Is Tulasi a personal or family name, or the plant? Are you comfortable with TulaFresh, with the Tulasi link kept private?
+
+Sources added: https://en.wikipedia.org/wiki/Velama, https://joshuaproject.net/people_groups/18304/IN, https://list.indology.info/pipermail/indology/1998-April/011895.html, https://www.indiatvnews.com/pincode/telangana/nalgonda/velamjala, https://pin.codes.in/pincode/531030/velamamidi, https://www.freepressjournal.in/mind-matters/the-greatness-of-tulsi-and-tulsi-vivah, https://shubhpanchang.com/festivals/tulsi-marriage-begins, https://icharchive.intach.org/Myheritagedetail/Index?id=66, https://www.deccanherald.com/india/maharashtra/police-seal-navi-mumbai-meat-shop-for-hurting-religious-sentiments-3068821, https://organiser.org/2023/05/02/172044/bharat/hindus-protested-against-a-muslim-dhaba-owner-for-hiding-his-identity-keeping-the-name-of-eatery-as-shiva-dhaba/, https://sabrangindia.in/hindu-extremist-groups-target-meat-shops-in-multiple-indian-cities/, https://trademark.justia.com/990/47/tulsi-royal-khajoor-99047742.html, https://m.indiamart.com/sritulasiconsumerproducts-services, https://www.globallinker.com/seller/tulasi-exports, https://en.wikipedia.org/wiki/Tulasi_(2007_film)
