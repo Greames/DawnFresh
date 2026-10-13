@@ -8,6 +8,7 @@ Ask the coordinator (Claude, in this session) to route a question to an agent, o
 | Sales | Lead pipeline, quotes, follow-ups, collections follow-up, franchise leads | `docs/agents/sales.md` | Ready |
 | Social Media | Channels, content calendar, captions, reply scripts | `docs/agents/social-media.md` | Ready |
 | Vendor Procurement | Finds vendors, prepares call scripts, captures quotes, ranks shortlist (humans make the calls) | `docs/agents/vendor-procurement.md` | Ready |
+| Outlet & Mobile Outlet Design | Retail outlet formats, layout, fit-out specs, mobile outlet options, fabricator briefs | `docs/agents/outlet-design.md` | Ready (figures unverified) |
 | Registrations | FSSAI, GST, municipal and other licences and filings | `docs/dept/registrations.md` | Ready (figures unverified) |
 | Vendors, Location, Manpower | Sourcing, premises, hiring | `docs/dept/` | Ready, on request |
 | Product Owner | Backlog order, status, scope and escalation | `docs/product/` | Scheduled weekday check |
