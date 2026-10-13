@@ -79,3 +79,82 @@ Ranking is on fit, distinctiveness, ease in Telugu and English, and lack of obvi
 - IP India search steps: https://intepat.com/?p=7592 (portal address ipindiaonline.gov.in/tmrpublicsearch, as cited there). Third-party search tool noted but not relied on: https://www.registerkaro.in/trademark-search
 - MCA naming rules (consultancy summaries; verify on mca.gov.in): https://learn.quicko.com/mca-run-reserve-unique-name-company-incorporation, https://lexplosion.in/?p=126706, https://www.incorpx.io/blog/new-company-name-reservation-rules-2026-mca
 - Existing brands: https://wellfound.com/company/zappfresh, https://www.indiaretailing.com/?p=125717, https://yourstory.com/2021/12/freshpick-meat-fish-fresh-healthy-mumbai-markets/amp, https://marketingmonk.so/p/how-freshtohome-won-the-norganized-meat-market, https://www.cbinsights.com/company/pescafresh, https://www.smergers.com/meat-shops-for-sale-and-investment-in-secunderabad/c5904s1463b/
+
+---
+
+# Shortlist after owner constraints
+
+Owner constraints (13 Oct 2026): the name must include "Fresh", be neutral (not tied to Proddatur or Telugu, so it works for franchises elsewhere), and give a chicken lead without using the word "chicken" (the business also sells mutton, eggs, fish, prawns). A rooster/dawn visual is fine. **No name here is cleared.** IP India, MCA, domain, handle, Google Maps/Justdial checks are all NOT CHECKED for every name.
+
+## Dropped from section 4
+
+- **Udayam Fresh**: Telugu word, too local for franchises elsewhere.
+- **Aruna Fresh**: personal/local name, likely many existing "Aruna" businesses.
+- **DawnTrail**: has no "Fresh".
+- Also not carried forward: the rest of section 3 (no "Fresh", or no chicken hint).
+
+## New names evaluated
+
+| Name | Idea | Telugu/English ease (UNVERIFIED) | Web search result (Oct 2026) | Risks |
+|---|---|---|---|---|
+| **FreshRoost** | "Roost" is where chickens perch; clear chicken hint, neutral | Easy to say; "roost" is known in English, less so in Telugu | No Indian brand found | Phonetic neighbours: "Roast" (food-service marks, restaurants), so class 43 conflict possible. "Roost" is a common word |
+| **RoostFresh** | Word order flip | Same | No Indian brand found | Same as above; FreshRoost reads better and puts "Fresh" first |
+| **CluckFresh** | Playful cluck sound | Fun but childlike; may undersell mutton/fish and franchise seriousness | No Indian brand found | Sounds like a QSR/fried chicken brand; weak for B2B hotels and caterers |
+| **FreshCoop** | Chicken coop | Easy | No Indian brand found | "Coop" also reads as cooperative society (a regulated term in India); may confuse customers and registries. Not recommended |
+| **DawnRoost Fresh** | Dawn plus roost plus fresh | Long, three ideas | No Indian brand found | Too long for signage and handles. Not recommended |
+| **FreshCrest** | Rooster's crest (comb); premium feel; neutral | Easy | No Indian poultry brand found. "Crest Foods" (Chennai chicken nuggets, listed on BigBasket) is a close-sounding name | "Crest Foods" is in Class 29 chicken products: a real phonetic conflict to examine. "Crest" is a very common mark across many classes (UNVERIFIED) |
+| **DawnFresh** (from section 3) | Rooster at dawn logo, descriptor line "Fresh chicken & meats" | Easy | Search found no Indian poultry brand. Found US marks "DAWN FRESH" (canned mushroom steak sauce/gravy, Class 30, registered) and "DAWN'S FRESH FOODS" (prepared foods such as chicken salad, with a sunrise design) | US registrations do not bind India but show the name is used for food elsewhere; "Dawn" is common. "Dawn" may sound like "Don" in Hindi/Telugu speech |
+| **FreshTrail** (from section 3) | Neutral, supply chain feel; no chicken hint, so the chicken lead has to come from the logo (rooster) and descriptor | Easy | Search found no brand named FreshTrail or Fresh Trail for food/eggs/chicken | Weakest distinctiveness; unrelated "Fresh Trail" businesses likely exist (UNVERIFIED) |
+
+Search honesty note: 5 queries covered these names. They found no matching Indian poultry brand, but the search engine does not index trademark registers, pending applications, small local shops, domains or social handles, so a clean result means nothing for clearance. Spelling variants to test: Roost/Rooste/Rust, Cluck/Kluck/Klak, Crest/Krest, Dawn/Dawne/Don, Trail/Trayl/Trial.
+
+## Recommended final 3 for formal checking (in preference order)
+
+1. **DawnFresh** (lead): rooster-at-dawn logo; descriptor "Fresh chicken & meats". Distinctiveness comes from the logo and the combination, since both words are common.
+2. **FreshRoost**: strongest chicken hint among the neutral "Fresh" names. Check the Roast phonetic conflict.
+3. **FreshTrail**: safe fallback, carries over FreshRoute's feel. Needs rooster/descriptor to signal chicken.
+
+Reserve if one fails: **FreshCrest** (but check "Crest Foods" first).
+
+Reasoning is judgement, not legal advice. The attorney may reorder these after the search results.
+
+## One-page checklist for the CA / trademark attorney
+
+Client: DawnFresh business owner. Product: fresh chicken (lead), mutton, eggs, fish, prawns; retail outlet, B2B distribution, franchise network. Location: Proddatur, Andhra Pradesh (brand must work in other states). Entity: LLP or Pvt Ltd (decision due 25 Oct).
+
+**Search instructions (apply to each of the 3 names)**
+
+1. **IP India wordmark search** (ipindiaonline.gov.in/tmrpublicsearch): exact name, phonetic search, and spelling variants listed above, also with space and hyphen. One class per search. Classes 29 (meat, poultry, fish, eggs), 35 (retail, wholesale, distribution, franchising support). Add 43 if a restaurant or cloud kitchen is planned and 39 if a delivery brand is planned. Note applicant, status (registered, pending, objected, abandoned), goods and class, and filing date for any similar hit. Include device/logo marks containing a rooster and sunrise if the attorney can run a Vienna code search.
+2. **MCA name check** for the chosen entity type: SPICe+ Part A (company) or RUN-LLP (LLP). Check for identical or too-similar existing company/LLP names and conflict with trademarks.
+3. **Domains:** .in and .com (also common misspellings).
+4. **Handles:** Instagram, Facebook page, YouTube (@handle), WhatsApp Business name. Same handle on all if possible.
+5. **Google Maps and Justdial:** search the name in Andhra Pradesh and Telangana (also neighbouring states if budget allows) for any meat, poultry, egg, fish, food or retail business with the same or similar name.
+6. **Local sound check:** 3 Telugu speakers and 2 Hindi speakers say the name aloud; note any offensive or comic reading.
+
+**Pass/fail table (owner or CA fills in)**
+
+| Check | DawnFresh | FreshRoost | FreshTrail |
+|---|---|---|---|
+| IP India class 29 exact | | | |
+| IP India class 35 exact | | | |
+| IP India phonetic and variants (29, 35) | | | |
+| IP India class 43 / 39 (if relevant) | | | |
+| MCA name check (entity type: ____) | | | |
+| .in domain available | | | |
+| .com domain available | | | |
+| Instagram handle | | | |
+| Facebook page name | | | |
+| YouTube handle | | | |
+| Google Maps/Justdial AP | | | |
+| Google Maps/Justdial Telangana | | | |
+| Telugu/Hindi sound check | | | |
+| Overall: PASS / FAIL / NEEDS ATTORNEY ADVICE | | | |
+
+Mark each cell PASS, FAIL (note the conflicting name and owner) or UNSURE. A similar pending or registered mark in Class 29 or 35 is a FAIL until the attorney says otherwise. Taken domains or handles can be worked around with a modifier (for example "getdawnfresh"), but a class 29/35 conflict cannot.
+
+**Decision rule**
+
+- Work down the preference order: DawnFresh, FreshRoost, FreshTrail.
+- The first name with no FAIL in the IP India and MCA rows and an acceptable domain/handle result becomes the final name.
+- Decide by **25 Oct 2026** so the entity (A1), trademark filing (A13) and signage/label work (E1) can proceed. If all three fail, bring FreshCrest and further options.
+- File the trademark application immediately after the decision. Do not print signage, labels or packaging before filing. The attorney should confirm the final choice in writing. Nothing in this document certifies any name as available.
