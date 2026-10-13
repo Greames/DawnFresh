@@ -158,3 +158,97 @@ Mark each cell PASS, FAIL (note the conflicting name and owner) or UNSURE. A sim
 - The first name with no FAIL in the IP India and MCA rows and an acceptable domain/handle result becomes the final name.
 - Decide by **25 Oct 2026** so the entity (A1), trademark filing (A13) and signage/label work (E1) can proceed. If all three fail, bring FreshCrest and further options.
 - File the trademark application immediately after the decision. Do not print signage, labels or packaging before filing. The attorney should confirm the final choice in writing. Nothing in this document certifies any name as available.
+
+---
+
+# Tul options
+
+Owner constraints now: the name must include **"Tul"** and **"Fresh"**, be neutral (not tied to Proddatur or the Telugu region), and let chicken lead without the word "chicken". **No name here is cleared.** IP India, MCA, domains, handles, Google Maps/Justdial are NOT CHECKED for all of them.
+
+## What "Tul" can mean (from search and general knowledge)
+
+- **Tula** (Sanskrit): balance, scale, weight, and the zodiac sign Libra; the root is "tul" (source: wisdomlib.org/definition/tula, shabdkosh Sanskrit dictionary). Kannada dictionary entry *tule* = an instrument for weighing, scales (same wisdomlib page). Vedic astrology: Tula Rashi is the seventh sign and is symbolised by a pair of scales (astromedha.in).
+- **Tulsi/Tulasi**: holy basil, sacred to Hindus (restaurantindia.in coverage and general knowledge).
+- **Not found / NOT CHECKED:** Telugu and Tamil dictionary senses of "tula" and "tul", and any Hindi/Telugu/Tamil/Kannada slang reading. The search did not cover them. General knowledge only, UNVERIFIED: Tula is also a city in Russia, and "tul" may sound like English "tool" when said aloud. Ask 3 Telugu, 2 Tamil, 2 Kannada and 2 Hindi speakers to say each name aloud and write it in their script before any final decision.
+- **Story fit:** "Tula" = scales fits a meat business: honest weight, fair price, balance. It also links to Legal Metrology verified scales (see `registrations.md`, A11). A rooster standing on or beside a pair of scales would be a clear logo idea. If "Tul" stands for something personal (a name or initials), the logo and story can use that instead (question for the owner below).
+
+## Candidates evaluated
+
+| Name | Reading aloud (UNVERIFIED) | Web search (Oct 2026) | Risks |
+|---|---|---|---|
+| **TulaFresh** | "TOO-la fresh"; easy in all four languages; Telugu తులా ఫ్రెష్ (spelling to confirm) | No Indian meat/poultry brand found | "Tula" is a common word and name, so many unrelated trademarks likely (NOT CHECKED). Telugu has its own word తూకం (tūkam, weighing), so locals may link Tula with weighing: positive. Tula is also a Libra/astrology term, which some customers will connect with horoscope (neutral) |
+| **TulFresh** | "Tool fresh"; shortest, but may sound like "tool" in English | No Indian brand found | Weaker meaning; may be mispronounced; very close to TulaFresh (variant, so one filing might conflict with the other) |
+| **FreshTula** | Same as TulaFresh, order flipped | No Indian brand found | "Fresh" first suits the owner's wish, but reads less naturally; weaker brand flow |
+| **TulsiFresh / Tulsi Fresh** | "Tool-see fresh" | Search found no meat/poultry brand of this name, **but "Tulsi" is heavily used in food and hospitality**: a vegetarian restaurant chain in Delhi NCR/Gurugram and Noida, restaurants in Ireland, Poland and New Zealand appeared in results (restaurantindia.in, ireland-guide.com, opole.pl, zabihah.com) | Very crowded name (NOT CHECKED in IP India, but expect many registrations in Classes 29, 30, 35, 43). Holy plant strongly tied to vegetarian use in many Hindu households; a meat brand using a sacred name could offend some customers. **Not recommended** |
+| **TulyaFresh** (own idea; "tulya" = equal, comparable in Sanskrit; general knowledge, UNVERIFIED) | "TOOL-ya fresh" | No Indian brand found | Meaning not widely known; the "-ya" ending may be mistaken for a Tamil/Telugu honorific or a person's name; more distinctive than Tula alone |
+| **TulipFresh** (own idea) | "Tulip fresh" | No Indian brand found | Flower name, no scales story; "Tulip" in food and retail is likely crowded; fails the story test. Not recommended |
+| **TulaRoost Fresh** / **TulCrest Fresh** (own ideas, add a chicken hint) | Long, 3 ideas | Not searched individually (no meat brand found in a combined search for "Tulasi Fresh, TulaCrest, Tulu Fresh, Tulip Fresh, Tul Roost"; the search was simplified, so these were not tested precisely) | Too long for signage and handles. Not recommended. Add the rooster in the logo instead |
+| **Tulu Fresh** | (dropped) | Not searched exactly | "Tulu" is a language and region of coastal Karnataka, so it breaks the neutrality rule |
+
+Search notes: four queries covered these names. Every name returned zero Indian meat/poultry brands of that exact name, but results were dominated by FreshToHome, Zappfresh, Licious, TenderCuts, Suguna, Godrej Real Good Chicken, Sneha Chicken/Sneha Select (Telangana and Andhra Pradesh) and Country Chicken Co. (Hyderabad). The search engine does not index IP India or small shops, so absence of hits means nothing for clearance. Spelling variants to test: Tula/Tulaa/Thula/Tuula, Tul/Tool/Thul, Fresh/Fressh/Frsh, Tulya/Thulya/Tulia.
+
+## Ranking of Tul options
+
+1. **TulaFresh**: best balance of meaning (scales, honest weight), pronunciation and neutrality. Needs a rooster plus descriptor for the chicken lead (for example "Fresh chicken & meats").
+2. **TulyaFresh**: more distinctive, weaker meaning recognition, riskier pronunciation.
+3. **TulFresh**: short but likely mispronounced and confusable with TulaFresh.
+4. **FreshTula**: awkward flow.
+5. **TulsiFresh**: crowded and religiously sensitive; avoid.
+
+## Updated final three for formal checking
+
+| Rank | Name | Why | Main risks |
+|---|---|---|---|
+| 1 | **TulaFresh** (also search TulFresh and FreshTula as variants) | Satisfies "Tul", has a meaning and logo story (rooster with scales), neutral | "Tula" is common (many trademarks likely, NOT CHECKED); weak distinctiveness of "Fresh" |
+| 2 | **DawnFresh** | Rooster-at-dawn logo; keeps the project name | "Dawn" is common; US marks "DAWN FRESH" (mushroom gravy) and "DAWN'S FRESH FOODS" exist, not binding in India; "Don" association |
+| 3 | **FreshRoost** | Strongest chicken hint | "Roast" phonetic neighbour (Class 43), "roost" common word |
+
+Reserve: TulyaFresh, FreshTrail, FreshCrest. (If "Tul" is not a hard requirement, DawnFresh remains a strong alternative. The owner must decide.)
+
+## One-page CA / trademark attorney checklist (current version for the final three)
+
+This replaces the earlier checklist for these names. Client: DawnFresh business owner. Products: fresh chicken (lead), mutton, eggs, fish, prawns; retail, B2B distribution, franchise network. Location: Proddatur, Andhra Pradesh; the brand must work in other states. Entity: LLP or Pvt Ltd (decision due 25 Oct).
+
+**Search instructions (apply to each name)**
+
+1. **IP India wordmark search** (ipindiaonline.gov.in/tmrpublicsearch): exact name, phonetic search, and variants (TulaFresh: Tula/Tulaa/Thula/Tulya/Tul/Tool + Fresh/Fressh; DawnFresh: Dawn/Dawne/Don; FreshRoost: Roost/Roast/Rust), with space and hyphen. One class per search. Classes 29 (meat, poultry, fish, eggs), 35 (retail, wholesale, distribution, franchising support); add 43 if a restaurant or cloud kitchen is planned and 39 if a delivery brand is planned. Record applicant, status (registered, pending, objected, abandoned), goods, class and filing date of any similar hit. For TulaFresh, specifically check all "Tula/Tulsi" marks in Class 29 and 35. Ask about a Vienna-code search for rooster/scales/sunrise devices.
+2. **MCA name check** for the entity type: SPICe+ Part A (company) or RUN-LLP (LLP). Look for identical or too-similar company/LLP names and trademark conflict.
+3. **Domains:** .in and .com, plus misspellings.
+4. **Handles:** Instagram, Facebook page, YouTube (@handle), WhatsApp Business name.
+5. **Google Maps and Justdial:** search each name in Andhra Pradesh and Telangana (and neighbouring states if budget allows) for meat, poultry, egg, fish, food or retail businesses with the same or similar name.
+6. **Language and sound check:** Telugu, Tamil, Kannada and Hindi speakers say each name aloud and write it in script; note offensive, comic or slang readings. For TulaFresh also confirm Telugu and Tamil meanings of "tula/tūla".
+
+**Pass/fail table (owner or CA fills in)**
+
+| Check | TulaFresh | DawnFresh | FreshRoost |
+|---|---|---|---|
+| IP India class 29 exact | | | |
+| IP India class 35 exact | | | |
+| IP India phonetic and variants (29, 35) | | | |
+| IP India class 43 / 39 (if relevant) | | | |
+| MCA name check (entity type: ____) | | | |
+| .in domain available | | | |
+| .com domain available | | | |
+| Instagram handle | | | |
+| Facebook page name | | | |
+| YouTube handle | | | |
+| Google Maps/Justdial AP | | | |
+| Google Maps/Justdial Telangana | | | |
+| Telugu/Tamil/Kannada/Hindi sound and meaning check | | | |
+| Overall: PASS / FAIL / NEEDS ATTORNEY ADVICE | | | |
+
+Mark each cell PASS, FAIL (note the conflicting name and owner) or UNSURE. A similar pending or registered mark in Class 29 or 35 is a FAIL until the attorney says otherwise. A taken domain or handle can be worked around with a modifier, but a Class 29/35 conflict cannot.
+
+**Decision rule**
+
+- Work down the order TulaFresh, DawnFresh, FreshRoost. The first name with no FAIL in the IP India and MCA rows and acceptable domain/handle results becomes the final name, decided by **25 Oct 2026**.
+- If all three fail, bring TulyaFresh, FreshTrail and FreshCrest.
+- File the trademark application immediately after the decision, and do not print signage, labels or packaging before filing. The attorney confirms the final choice in writing. Nothing in this document certifies any name as available.
+
+## Questions for the owner
+
+1. What does "Tul" stand for (a name, initials, "Tula/scales")? This shapes the logo and story.
+2. Is a rooster-with-scales logo, plus a descriptor "Fresh chicken & meats", acceptable?
+3. If "Tul" is optional after all, should DawnFresh become the lead?
+
+Sources for this section: https://www.wisdomlib.org/definition/tula, https://www.shabdkosh.com/dictionary/sanskrit-english/balance/balance-meaning-in-sanskrit, https://astromedha.in/insights/vedic/tula-rashi, https://www.restaurantindia.in/news/tulsi-opens-third-pure-vegetarian-restaurant-at-spectrum-mall-noida.n16981, https://www.ireland-guide.com/establishment/tulsi.4545.html, https://www.zabihah.com/chn/nz/qJEuDgiuRb, https://www.opole.pl/en/print/pdf/node/323, https://www.foodtechbiz.com/business-updates/freshtohome-announces-massive-expansion-in-telangana-and-ap-with-40-new-cities, https://apps.apple.com/app/id1236186604, https://test.uniindia.com/country-chicken-co-launches-premium-experience-store-in-hyderabad/south/news/3851516.html
