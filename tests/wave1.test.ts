@@ -2,7 +2,7 @@ import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq, and } from 'drizzle-orm'
 import { db, pool } from './helpers/test-db.js'
-import { call, createFranchise, createUser, resetDatabase } from './helpers/harness.js'
+import { call, createFranchise, createUser, resetDatabase, seedPrices } from './helpers/harness.js'
 import type { Actor } from './helpers/harness.js'
 import { auditEvents, customers, customerOrders, qcChecks, stockLots } from '../db/schema.js'
 import { posReconciliations, posShifts, posOutlets } from '../db/pos-schema.js'
@@ -25,6 +25,7 @@ const sale = (extra: Record<string, unknown> = {}) => ({
 
 before(async () => {
   await resetDatabase()
+  await seedPrices()
   admin = await createUser('admin', 'admin@test.local')
   staff = await createUser('staff', 'staff@test.local')
   franchiseA = await createFranchise('Franchise A', 'a@test.local')

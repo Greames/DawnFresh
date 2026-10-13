@@ -226,3 +226,29 @@ export function money(value: number, currency: string) {
   try { return new Intl.NumberFormat('en', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value) }
   catch { return `${currency} ${value.toLocaleString('en')}` }
 }
+
+/**
+ * The operational business day is the IST (Asia/Kolkata, UTC+5:30, no daylight saving) calendar date, by owner
+ * decision of 13 Oct 2026. Timestamps stay in UTC; every shift date, daily close and KPI goes through these helpers.
+ */
+export const IST_OFFSET_MINUTES = 330
+export const businessDateOf = (timestamp: Date | string | number): string => {
+  const ms = new Date(timestamp).getTime()
+  if (!Number.isFinite(ms)) throw new RangeError('Invalid timestamp')
+  return new Date(ms + IST_OFFSET_MINUTES * 60_000).toISOString().slice(0, 10)
+}
+/** True for a real calendar date written YYYY-MM-DD. */
+export const isBusinessDate = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const d = new Date(`${value}T00:00:00Z`)
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === value
+}
+/** The UTC instants [start, end) that bound one IST business date. */
+export const businessDayRange = (date: string): { start: Date; end: Date } => {
+  if (!isBusinessDate(date)) throw new RangeError('Invalid business date')
+  const start = new Date(new Date(`${date}T00:00:00Z`).getTime() - IST_OFFSET_MINUTES * 60_000)
+  return { start, end: new Date(start.getTime() + 86_400_000) }
+}
+/** The UTC range [start, end) covering the inclusive IST dates from..to. */
+export const businessPeriodRange = (from: string, to: string): { start: Date; end: Date } =>
+  ({ start: businessDayRange(from).start, end: businessDayRange(to).end })

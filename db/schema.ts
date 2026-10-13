@@ -219,6 +219,8 @@ export const stockLots = pgTable('stock_lots', {
   posOutletId: uuid('pos_outlet_id').references(() => posOutlets.id),
   parentLotId: uuid('parent_lot_id').references((): AnyPgColumn => stockLots.id),
   batchCode: text('batch_code').notNull(),
+  // Cost per unit carried by the lot. A franchise's child lot takes the company price at transfer; null = unknown (not guessed).
+  unitCost: numeric('unit_cost', { precision: 16, scale: 4 }),
   expiryAt: timestamp('expiry_at', { withTimezone: true }),
   status: text().notNull().default('Available'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

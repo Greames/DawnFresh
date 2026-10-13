@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { pool, db } from './test-db.js'
 import { appUsers, franchises } from '../../db/schema.js'
+import { pricingConfigs } from '../../db/pricing-schema.js'
 import { createSession } from '../../db/auth.js'
 
 const migrationsDir = path.resolve(import.meta.dirname, '../../netlify/database/migrations')
@@ -45,4 +46,14 @@ export async function call(handler: (req: Request) => Promise<Response>, actor: 
   let json: any = null
   try { json = JSON.parse(text) } catch { /* not JSON */ }
   return { status: res.status, json }
+}
+
+/** Active company price list: customers pay 100 per kg (tax 0), franchises pay the company 60 per kg. */
+export async function seedPrices(overrides: Partial<typeof pricingConfigs.$inferInsert> = {}) {
+  for (const product of ['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns']) {
+    await db.insert(pricingConfigs).values({
+      product, supplierName: 'Farm Co', supplierPricePerKg: '40', standardYieldPct: '70', companyPricePerKg: '60', customerPricePerKg: '100',
+      taxRatePct: '0', effectiveFrom: new Date('2020-01-01T00:00:00Z'), status: 'Active', ...overrides,
+    })
+  }
 }

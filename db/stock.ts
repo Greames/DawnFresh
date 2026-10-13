@@ -78,16 +78,16 @@ export async function moveStock(tx: Tx, m: MovementRefs & {
     quantity: q.toFixed(3), balanceAfter: stored.toFixed(3), createdBy: m.actor,
     referenceType: m.referenceType ?? null, referenceId: m.referenceId ?? null, saleId: m.saleId ?? null,
     supplyRequestId: m.supplyRequestId ?? null, purchaseOrderId: m.purchaseOrderId ?? null,
-    goodsReceiptId: m.goodsReceiptId ?? null, reason: m.reason ?? null,
+    goodsReceiptId: m.goodsReceiptId ?? null, reason: m.reason ?? null, unitCost: lot.unitCost,
   }).returning()
   return row
 }
 
 /** Creates an empty lot held by the outlet. Put stock into it with moveStock. */
-export async function createOutletLot(tx: Tx, a: { outlet: OutletRow; product: string; unit?: string; batchCode: string; expiryAt?: Date | null; parentLotId?: string | null }) {
+export async function createOutletLot(tx: Tx, a: { outlet: OutletRow; product: string; unit?: string; batchCode: string; expiryAt?: Date | null; parentLotId?: string | null; unitCost?: string | null }) {
   const [lot] = await tx.insert(stockLots).values({
     product: a.product, quantity: '0', unit: a.unit || 'kg', stage: 'Finished stock', batchCode: a.batchCode,
-    expiryAt: a.expiryAt ?? null, status: 'Depleted', franchiseId: a.outlet.franchiseId, posOutletId: a.outlet.id, parentLotId: a.parentLotId ?? null,
+    expiryAt: a.expiryAt ?? null, status: 'Depleted', franchiseId: a.outlet.franchiseId, posOutletId: a.outlet.id, parentLotId: a.parentLotId ?? null, unitCost: a.unitCost ?? null,
   }).returning()
   return lot
 }
@@ -132,16 +132,16 @@ export async function lockCompanyLots(tx: Tx, product: string, onlyLotId?: strin
  * Moves `take` from a locked company lot into the outlet: decrements the company lot, cuts a child lot held by the
  * outlet (same batch and expiry, parent_lot_id pointing at the company lot) and posts the inbound movement.
  */
-export async function receiveFromCompanyLot(tx: Tx, a: MovementRefs & { companyLot: LotRow; take: number; outlet: OutletRow; type: 'SupplyIn' | 'TransferIn'; actor: string }) {
+export async function receiveFromCompanyLot(tx: Tx, a: MovementRefs & { companyLot: LotRow; take: number; outlet: OutletRow; type: 'SupplyIn' | 'TransferIn'; actor: string; unitCost?: string | null }) {
   const remaining = r3(num(a.companyLot.quantity) - a.take)
   if (remaining < -EPS) throw new Rejection(409, 'Stock changed while transferring. Please retry.')
   await tx.update(stockLots).set({ quantity: Math.max(0, remaining).toFixed(3), status: remaining > EPS ? 'Available' : 'Depleted', updatedAt: new Date() }).where(eq(stockLots.id, a.companyLot.id))
-  const child = await createOutletLot(tx, { outlet: a.outlet, product: a.companyLot.product, unit: a.companyLot.unit, batchCode: a.companyLot.batchCode, expiryAt: a.companyLot.expiryAt, parentLotId: a.companyLot.id })
+  const child = await createOutletLot(tx, { outlet: a.outlet, product: a.companyLot.product, unit: a.companyLot.unit, batchCode: a.companyLot.batchCode, expiryAt: a.companyLot.expiryAt, parentLotId: a.companyLot.id, unitCost: a.unitCost ?? null })
   const ledger = await moveStock(tx, { ...a, outletId: a.outlet.id, franchiseId: a.outlet.franchiseId, product: a.companyLot.product, lotId: child.id, quantity: a.take })
   return { ledger, lot: child }
 }
 
-export type Removed = { ledgerId: string; lotId: string; quantity: number }
+export type Removed = { ledgerId: string; lotId: string; quantity: number; unitCost: string | null }
 
 /**
  * Takes `quantity` (positive) out of an outlet: from the named lot, or first-expiry-first-out across the outlet's
@@ -163,7 +163,7 @@ export async function removeStock(tx: Tx, a: MovementRefs & {
   const out: Removed[] = []
   for (const part of parts) {
     const row = await moveStock(tx, { ...base, lotId: part.lotId, quantity: -part.take })
-    out.push({ ledgerId: row.id, lotId: part.lotId, quantity: part.take })
+    out.push({ ledgerId: row.id, lotId: part.lotId, quantity: part.take, unitCost: row.unitCost })
   }
   return out
 }
@@ -179,10 +179,11 @@ export async function addStock(tx: Tx, a: MovementRefs & {
   newLotPrefix: string
   batchCode?: string | null
   expiryAt?: Date | null
+  unitCost?: string | null
 }) {
   let lotId = a.lotId
   if (!lotId) {
-    const lot = await createOutletLot(tx, { outlet: a.outlet, product: a.product, batchCode: a.batchCode || `${a.newLotPrefix}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, expiryAt: a.expiryAt })
+    const lot = await createOutletLot(tx, { outlet: a.outlet, product: a.product, batchCode: a.batchCode || `${a.newLotPrefix}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, expiryAt: a.expiryAt, unitCost: a.unitCost })
     lotId = lot.id
   }
   return moveStock(tx, { ...a, outletId: a.outlet.id, franchiseId: a.outlet.franchiseId, lotId, quantity: r3(a.quantity) })

@@ -1,4 +1,5 @@
-import { pgTable, text, uuid, timestamp, numeric, integer, jsonb, index } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { pgTable, text, uuid, timestamp, numeric, integer, jsonb, index, check } from 'drizzle-orm/pg-core'
 import { appUsers, customerOrders, franchises } from './schema.js'
 
 export const pricingConfigs = pgTable('pricing_configs', {
@@ -10,7 +11,12 @@ export const pricingConfigs = pgTable('pricing_configs', {
   standardYieldPct: numeric('standard_yield_pct', { precision: 7, scale: 3 }).notNull(),
   logisticsCostPerKg: numeric('logistics_cost_per_kg', { precision: 14, scale: 4 }).notNull().default('0'),
   otherCostPerKg: numeric('other_cost_per_kg', { precision: 14, scale: 4 }).notNull().default('0'),
+  // What a franchise pays the company (supply value, stock cost).
   companyPricePerKg: numeric('company_price_per_kg', { precision: 14, scale: 4 }).notNull(),
+  // What the franchise's customer pays at the POS, tax excluded. Null = no customer price set, so POS refuses the sale.
+  customerPricePerKg: numeric('customer_price_per_kg', { precision: 14, scale: 2 }),
+  // Company-set tax rate for the product in percent; 0 by default (fresh meat is likely exempt; GST scope is pending, issue #18).
+  taxRatePct: numeric('tax_rate_pct', { precision: 5, scale: 2 }).notNull().default('0'),
   franchiseId: uuid('franchise_id').references(() => franchises.id),
   effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull(),
   effectiveTo: timestamp('effective_to', { withTimezone: true }),
@@ -22,6 +28,8 @@ export const pricingConfigs = pgTable('pricing_configs', {
 }, table => [
   index('pricing_configs_lookup_idx').on(table.product, table.processingType, table.status, table.effectiveFrom),
   index('pricing_configs_franchise_idx').on(table.franchiseId),
+  check('pricing_configs_tax_rate_check', sql`${table.taxRatePct} >= 0 AND ${table.taxRatePct} <= 100`),
+  check('pricing_configs_customer_price_check', sql`${table.customerPricePerKg} IS NULL OR ${table.customerPricePerKg} >= 0`),
 ])
 
 export const pricingScenarios = pgTable('pricing_scenarios', {

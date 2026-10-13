@@ -1,5 +1,5 @@
 import type { Config } from '@netlify/functions'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { franchises, customerOrders } from '../../db/schema.js'
 import { pricingConfigs, pricingScenarios, orderPricingSnapshots } from '../../db/pricing-schema.js'
@@ -58,6 +58,9 @@ export default async (req:Request)=>{
   if(b.action==='create-config'){
    const i=inputs(b)
    if(!i||!products.includes(String(b.product))||!b.supplierName||!b.effectiveFrom)return Response.json({error:'Complete the pricing configuration.'},{status:400,headers})
+   const customerPrice=b.customerPricePerKg===undefined||b.customerPricePerKg===null||b.customerPricePerKg===''?null:num(b.customerPricePerKg,0,1e7)
+   const taxRate=b.taxRatePct===undefined||b.taxRatePct===null||b.taxRatePct===''?0:num(b.taxRatePct,0,100)
+   if(taxRate===null||(b.customerPricePerKg!==undefined&&b.customerPricePerKg!==null&&b.customerPricePerKg!==''&&customerPrice===null))return Response.json({error:'Customer price must be zero or more and the tax rate between 0 and 100.'},{status:400,headers})
    const franchiseId=b.franchiseId?String(b.franchiseId):null
    if(franchiseId){
     const [franchise]=uuidPattern.test(franchiseId)?await db.select({id:franchises.id}).from(franchises).where(eq(franchises.id,franchiseId)):[]
@@ -65,13 +68,14 @@ export default async (req:Request)=>{
    }
    const existing=await db.select().from(pricingConfigs).where(and(eq(pricingConfigs.product,String(b.product)),eq(pricingConfigs.processingType,String(b.processingType||'Standard')))).orderBy(desc(pricingConfigs.version))
    const version=(existing[0]?.version||0)+1
-   const [row]=await db.insert(pricingConfigs).values({product:String(b.product),processingType:String(b.processingType||'Standard'),supplierName:String(b.supplierName).slice(0,180),supplierPricePerKg:String(i.supplierPricePerKg),standardYieldPct:String(i.standardYieldPct),logisticsCostPerKg:String(i.logisticsCostPerKg),otherCostPerKg:String(i.otherCostPerKg),companyPricePerKg:String(i.companyPricePerKg),franchiseId,effectiveFrom:new Date(b.effectiveFrom),effectiveTo:b.effectiveTo?new Date(b.effectiveTo):null,version,status:statuses.includes(String(b.status))?String(b.status):'Draft',notes:b.notes?String(b.notes).slice(0,1000):null,createdBy:access.account.id}).returning()
+   const [row]=await db.insert(pricingConfigs).values({product:String(b.product),processingType:String(b.processingType||'Standard'),supplierName:String(b.supplierName).slice(0,180),supplierPricePerKg:String(i.supplierPricePerKg),standardYieldPct:String(i.standardYieldPct),logisticsCostPerKg:String(i.logisticsCostPerKg),otherCostPerKg:String(i.otherCostPerKg),companyPricePerKg:String(i.companyPricePerKg),customerPricePerKg:customerPrice===null?null:String(Math.round(customerPrice*100)/100),taxRatePct:String(taxRate),franchiseId,effectiveFrom:new Date(b.effectiveFrom),effectiveTo:b.effectiveTo?new Date(b.effectiveTo):null,version,status:statuses.includes(String(b.status))?String(b.status):'Draft',notes:b.notes?String(b.notes).slice(0,1000):null,createdBy:access.account.id}).returning()
    return Response.json({config:row},{headers})
   }
   if(b.action==='activate-config'){
    const [row]=uuidPattern.test(String(b.id))?await db.select().from(pricingConfigs).where(eq(pricingConfigs.id,String(b.id))):[]
    if(!row)return Response.json({error:'Pricing configuration not found.'},{status:404,headers})
-   await db.update(pricingConfigs).set({status:'Archived',effectiveTo:new Date()}).where(and(eq(pricingConfigs.product,row.product),eq(pricingConfigs.processingType,row.processingType),eq(pricingConfigs.status,'Active')))
+   // Only configurations with the same scope (the same franchise, or all company-wide ones) are replaced.
+   await db.update(pricingConfigs).set({status:'Archived',effectiveTo:new Date()}).where(and(eq(pricingConfigs.product,row.product),eq(pricingConfigs.processingType,row.processingType),eq(pricingConfigs.status,'Active'),row.franchiseId?eq(pricingConfigs.franchiseId,row.franchiseId):isNull(pricingConfigs.franchiseId)))
    const [updated]=await db.update(pricingConfigs).set({status:'Active'}).where(eq(pricingConfigs.id,row.id)).returning()
    return Response.json({config:updated},{headers})
   }

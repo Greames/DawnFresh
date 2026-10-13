@@ -2,7 +2,7 @@ import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { and, eq, sql } from 'drizzle-orm'
 import { db, pool } from './helpers/test-db.js'
-import { call, createFranchise, createUser, resetDatabase } from './helpers/harness.js'
+import { call, createFranchise, createUser, resetDatabase, seedPrices } from './helpers/harness.js'
 import type { Actor } from './helpers/harness.js'
 import { auditEvents, customerOrders, customers, dispatchLoads, idempotencyKeys, invoiceRecords, paymentRecords, records, stockLots } from '../db/schema.js'
 import { outletStockLedger, posReturns, posSales, stockBalances, stockCounts } from '../db/pos-schema.js'
@@ -19,6 +19,7 @@ let codeSeq = 0
 
 before(async () => {
   await resetDatabase()
+  await seedPrices()
   admin = await createUser('admin', 'admin@test.local')
   staff = await createUser('staff', 'staff@test.local')
   franchiseA = await createFranchise('Franchise A', 'a@test.local')
@@ -517,7 +518,7 @@ describe('transactions roll back completely (#12)', () => {
     await stockOutlet(outlet.id, 'Mutton', 1)
     const shift = await openShift(fa, outlet.id)
     const sales = (await db.select().from(posSales)).length, invoices = (await db.select().from(invoiceRecords)).length, payments = (await db.select().from(paymentRecords)).length
-    const res = await call(pos, fa, { action: 'record-sale', data: { outletId: outlet.id, shiftId: shift.id, items: [{ product: 'Chicken', quantity: 1, unitPrice: 10 }, { product: 'Mutton', quantity: 5, unitPrice: 10 }], payments: [{ method: 'Cash', amount: 60 }] } })
+    const res = await call(pos, fa, { action: 'record-sale', data: { outletId: outlet.id, shiftId: shift.id, items: [{ product: 'Chicken', quantity: 1 }, { product: 'Mutton', quantity: 5 }], payments: [{ method: 'Cash', amount: 600 }] } })
     assert.equal(res.status, 409)
     assert.equal((await db.select().from(posSales)).length, sales)
     assert.equal((await db.select().from(invoiceRecords)).length, invoices)

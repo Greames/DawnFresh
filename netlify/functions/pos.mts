@@ -1,12 +1,13 @@
 import type { Config } from '@netlify/functions'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { auditEvents, customers, invoiceRecords, paymentRecords, stockLots } from '../../db/schema.js'
-import { outletStockLedger, posOutlets, posPayments, posReconciliations, posReturns, posSaleItems, posSales, posShifts, stockBalances, stockCounts } from '../../db/pos-schema.js'
+import { customerReceivables, outletStockLedger, posOutlets, posPayments, posReconciliations, posReturns, posSaleItems, posSales, posShifts, receivablePayments, stockBalances, stockCounts } from '../../db/pos-schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
 import type { Access } from '../../db/access.js'
 import { Rejection, failure, idempotencyKeyOf, respond, transact } from '../../db/tx.js'
 import type { Tx } from '../../db/tx.js'
+import { companyPrice, customerPrice } from '../../db/pricing.js'
 import { EPS, PRODUCTS, addStock, lockBalance, lockCompanyLots, moveStock, r2, r3, receiveFromCompanyLot, removeStock } from '../../db/stock.js'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -31,7 +32,7 @@ export default async (req: Request) => {
     if (!allowed(access, 'pos', 'view')) return Response.json({ error: 'POS access is required.' }, { status: 403, headers })
 
     if (req.method === 'GET') {
-      const [outlets, shifts, sales, payments, ledger, recs, lots, balances] = await Promise.all([
+      const [outlets, shifts, sales, payments, ledger, recs, lots, balances, receivables, receivableRows] = await Promise.all([
         db.select().from(posOutlets).orderBy(desc(posOutlets.createdAt)),
         db.select().from(posShifts).orderBy(desc(posShifts.openedAt)),
         db.select().from(posSales).orderBy(desc(posSales.soldAt)),
@@ -40,6 +41,8 @@ export default async (req: Request) => {
         db.select().from(posReconciliations).orderBy(desc(posReconciliations.businessDate)),
         db.select().from(stockLots).orderBy(desc(stockLots.createdAt)),
         db.select().from(stockBalances),
+        db.select().from(customerReceivables).orderBy(desc(customerReceivables.createdAt)),
+        db.select().from(receivablePayments).orderBy(desc(receivablePayments.receivedAt)),
       ])
       const visibleOutletIds = new Set(outlets.filter(x => scope(access, x.franchiseId)).map(x => x.id))
       const visibleSaleIds = new Set(sales.filter(x => visibleOutletIds.has(x.outletId)).map(x => x.id))
@@ -52,6 +55,8 @@ export default async (req: Request) => {
         reconciliations: recs.filter(x => visibleOutletIds.has(x.outletId)),
         lots: lots.filter(x => !!x.posOutletId && visibleOutletIds.has(x.posOutletId)),
         balances: balances.filter(x => visibleOutletIds.has(x.outletId)),
+        receivables: receivables.filter(x => scope(access, x.franchiseId)),
+        receivablePayments: receivableRows.filter(x => scope(access, x.franchiseId)),
       }, { headers })
     }
 
@@ -79,12 +84,24 @@ export default async (req: Request) => {
     if (action === 'open-shift') {
       const denied = editOnly(); if (denied) return denied
       const outletId = s(data.outletId, 80)
-      const [outlet] = await db.select().from(posOutlets).where(eq(posOutlets.id, outletId))
+      const [outlet] = uuidPattern.test(outletId) ? await db.select().from(posOutlets).where(eq(posOutlets.id, outletId)) : []
       if (!outlet || !scope(access, outlet.franchiseId) || outlet.status !== 'Active') return Response.json({ error: 'Active outlet not found.' }, { status: 404, headers })
-      const [open] = await db.select().from(posShifts).where(and(eq(posShifts.outletId, outletId), eq(posShifts.status, 'Open')))
-      if (open) return Response.json({ error: 'An open shift already exists for this outlet.' }, { status: 409, headers })
-      const [row] = await db.insert(posShifts).values({ outletId, cashierId: actor, openingCash: String(Math.max(0, n(data.openingCash))) }).returning()
-      return Response.json(row, { status: 201, headers })
+      const openingCash = String(Math.max(0, n(data.openingCash)))
+      try {
+        // One open shift per outlet: checked under a per-outlet lock inside the transaction, and backed by a partial unique index.
+        const row = await db.transaction(async tx => {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'open-shift:' + outletId}))`)
+          const [open] = await tx.select({ id: posShifts.id }).from(posShifts).where(and(eq(posShifts.outletId, outletId), eq(posShifts.status, 'Open')))
+          if (open) throw new Rejection(409, 'An open shift already exists for this outlet.')
+          const [created] = await tx.insert(posShifts).values({ outletId, cashierId: actor, openingCash }).returning()
+          await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: outlet.franchiseId, entityType: 'pos_shift', entityId: created.id, action: 'opened', metadata: { outletId, openingCash: Number(openingCash) } })
+          return created
+        })
+        return Response.json(row, { status: 201, headers })
+      } catch (e) {
+        if ((e as { cause?: { code?: string } })?.cause?.code === '23505' || (e as { code?: string })?.code === '23505') return Response.json({ error: 'An open shift already exists for this outlet.' }, { status: 409, headers })
+        throw e
+      }
     }
 
     if (action === 'record-sale') {
@@ -95,25 +112,19 @@ export default async (req: Request) => {
       if (items.length > 100) return Response.json({ error: 'A sale can have at most 100 lines.' }, { status: 400, headers })
       for (const item of items) {
         const product = s(item?.product, 80), qty = n(item?.quantity)
-        const unitPrice = n(item?.unitPrice, Number.NaN)
-        const itemDiscount = n(item?.discount), itemTax = n(item?.tax)
-        if (!PRODUCTS.includes(product) || !Number.isFinite(qty) || qty <= 0 ||
-            !Number.isFinite(unitPrice) || unitPrice < 0 ||
-            !Number.isFinite(itemDiscount) || itemDiscount < 0 || itemDiscount > qty * unitPrice ||
-            !Number.isFinite(itemTax) || itemTax < 0) {
-          return Response.json({ error: 'Sale items require a valid product, positive quantity, non-negative price/tax, and a discount within the line value.' }, { status: 400, headers })
+        if (!PRODUCTS.includes(product) || !Number.isFinite(qty) || qty <= 0) {
+          return Response.json({ error: 'Sale items require a valid product and a positive quantity.' }, { status: 400, headers })
         }
+        // Prices, tax and discounts come from the company price list on the server. A client may echo the price it
+        // saw, but any value that differs is rejected; discounts are not offered.
+        if (n(item?.discount) !== 0 || (item?.discount !== undefined && item?.discount !== null && !Number.isFinite(Number(item.discount)))) return Response.json({ error: 'Discounts are not allowed at the POS.' }, { status: 400, headers })
         if (item.stockLotId && !uid(item.stockLotId)) return Response.json({ error: 'Invalid stock lot.' }, { status: 400, headers })
       }
-      const subtotal = r2(items.reduce((a: number, i: any) => a + n(i.quantity) * n(i.unitPrice), 0))
-      const discount = r2(items.reduce((a: number, i: any) => a + n(i.discount), 0))
-      const tax = r2(items.reduce((a: number, i: any) => a + n(i.tax), 0))
-      const total = r2(Math.max(0, subtotal - discount + tax))
-      const payments = Array.isArray(data.payments) ? data.payments : [{ method: 'Cash', amount: total }]
-      const paid = payments.reduce((a: number, p: any) => a + n(p?.amount), 0)
-      if (Math.abs(paid - total) > 0.01) return Response.json({ error: 'Payment total must equal sale total.' }, { status: 400, headers })
-      for (const p of payments) {
-        if (!methods.includes(s(p?.method, 30)) || n(p?.amount) <= 0) return Response.json({ error: 'Invalid payment.' }, { status: 400, headers })
+      const payments = Array.isArray(data.payments) ? data.payments : null
+      // A single payment may leave out its amount: it then covers the server-computed total.
+      const singleOpen = payments?.length === 1 && (payments[0]?.amount === undefined || payments[0]?.amount === null)
+      for (const p of payments ?? []) {
+        if (!methods.includes(s(p?.method, 30)) || (!singleOpen && !(n(p?.amount) > 0))) return Response.json({ error: 'Invalid payment.' }, { status: 400, headers })
       }
       const customerId = data.customerId ? s(data.customerId, 80) : null
 
@@ -126,49 +137,113 @@ export default async (req: Request) => {
           const [customer] = uuidPattern.test(customerId) ? await tx.select().from(customers).where(eq(customers.id, customerId)) : []
           if (!customer || (customer.franchiseId ?? null) !== (outlet.franchiseId ?? null)) throw new Rejection(400, 'Customer not found for this outlet.')
         }
+
+        // Server-side price and tax per product (franchise-specific configuration first). No price, no sale.
+        const prices = new Map<string, { unitPrice: number; taxRatePct: number }>()
+        for (const product of new Set<string>(items.map((i: any) => s(i.product, 80)))) {
+          const found = await customerPrice(tx, product, outlet.franchiseId)
+          if (!found) throw new Rejection(422, `No active customer price is configured for ${product}. Ask the company to set one.`)
+          prices.set(product, found)
+        }
+        const lines = items.map((item: any) => {
+          const product = s(item.product, 80), qty = r3(n(item.quantity)), price = prices.get(product)!
+          const subtotal = r2(qty * price.unitPrice), tax = r2(subtotal * price.taxRatePct / 100)
+          if (item.unitPrice !== undefined && item.unitPrice !== null && !(Math.abs(Number(item.unitPrice) - price.unitPrice) <= 0.004)) throw new Rejection(400, `The unit price for ${product} is set by the company (${price.unitPrice.toFixed(2)} per kg). A different price was supplied.`)
+          if (item.tax !== undefined && item.tax !== null && !(Math.abs(Number(item.tax) - tax) <= 0.004)) throw new Rejection(400, `The tax for ${product} is computed by the server (${tax.toFixed(2)}). A different amount was supplied.`)
+          return { item, product, qty, unitPrice: price.unitPrice, subtotal, tax }
+        })
+        const subtotal = r2(lines.reduce((a: number, l: any) => a + l.subtotal, 0))
+        const tax = r2(lines.reduce((a: number, l: any) => a + l.tax, 0))
+        const total = r2(subtotal + tax)
+        const tendered = singleOpen ? [{ ...payments![0], amount: total }] : payments ?? [{ method: 'Cash', amount: total }]
+        const paidSum = tendered.reduce((a: number, p: any) => a + n(p?.amount), 0)
+        if (Math.abs(paidSum - total) > 0.01) throw new Rejection(400, `Payment total must equal the sale total of ${total.toFixed(2)}.`)
+        const credit = r2(tendered.filter((p: any) => s(p.method, 30) === 'Credit').reduce((a: number, p: any) => a + n(p.amount), 0))
+        if (credit > 0 && !customerId) throw new Rejection(400, 'A credit sale needs a customer.')
+
         const saleId = crypto.randomUUID()
         const bill = s(data.billNumber, 80) || `POS-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${saleId.slice(0, 8).toUpperCase()}`
         const [duplicate] = await tx.select({ id: posSales.id }).from(posSales).where(eq(posSales.billNumber, bill))
         if (duplicate) throw new Rejection(409, 'This bill number is already used.')
         const [sale] = await tx.insert(posSales).values({
           id: saleId, outletId: outlet.id, shiftId, billNumber: bill, customerId, cashierId: actor,
-          subtotal: String(subtotal), discount: String(discount), tax: String(tax), total: String(total), status: 'Completed',
+          subtotal: String(subtotal), discount: '0', tax: String(tax), total: String(total), status: 'Completed',
         }).returning()
 
         // Stock first, in product order so concurrent multi-product sales take their balance locks in one order.
-        const order = items.map((item: any, index: number) => ({ item, index })).sort((a: any, b: any) => s(a.item.product, 80).localeCompare(s(b.item.product, 80)) || a.index - b.index)
+        const order = lines.map((line: any, index: number) => ({ line, index })).sort((a: any, b: any) => a.line.product.localeCompare(b.line.product) || a.index - b.index)
         const saleItems: (typeof posSaleItems.$inferInsert)[] = []
-        for (const { item } of order) {
-          const product = s(item.product, 80), qty = n(item.quantity), unitPrice = n(item.unitPrice)
-          const pieces = await removeStock(tx, { outlet, product, quantity: qty, lotId: item.stockLotId ? uid(item.stockLotId) : null, type: 'Sale', actor, referenceType: 'POS_SALE', referenceId: sale.id, saleId: sale.id, skipExpired: true })
-          // A line the caller did not pin to a lot may be filled from several lots: one sale line per lot, discount and tax split pro rata.
-          let usedDiscount = 0, usedTax = 0
+        for (const { line } of order) {
+          const pieces = await removeStock(tx, { outlet, product: line.product, quantity: line.qty, lotId: line.item.stockLotId ? uid(line.item.stockLotId) : null, type: 'Sale', actor, referenceType: 'POS_SALE', referenceId: sale.id, saleId: sale.id, skipExpired: true })
+          // A line the caller did not pin to a lot may be filled from several lots: one sale line per lot, line value and tax split pro rata.
+          let usedSubtotal = 0, usedTax = 0
           pieces.forEach((part, i) => {
             const last = i === pieces.length - 1
-            const lineDiscount = last ? r2(n(item.discount) - usedDiscount) : r2(n(item.discount) * part.quantity / qty)
-            const lineTax = last ? r2(n(item.tax) - usedTax) : r2(n(item.tax) * part.quantity / qty)
-            usedDiscount = r2(usedDiscount + lineDiscount); usedTax = r2(usedTax + lineTax)
+            const pieceSubtotal = last ? r2(line.subtotal - usedSubtotal) : r2(part.quantity * line.unitPrice)
+            const pieceTax = last ? r2(line.tax - usedTax) : r2(line.tax * part.quantity / line.qty)
+            usedSubtotal = r2(usedSubtotal + pieceSubtotal); usedTax = r2(usedTax + pieceTax)
             saleItems.push({
-              saleId: sale.id, product, quantity: part.quantity.toFixed(3), unit: s(item.unit, 20) || 'kg', unitPrice: String(unitPrice),
-              discount: String(lineDiscount), tax: String(lineTax), total: String(Math.max(0, r2(part.quantity * unitPrice - lineDiscount + lineTax))), stockLotId: part.lotId,
+              saleId: sale.id, product: line.product, quantity: part.quantity.toFixed(3), unit: s(line.item.unit, 20) || 'kg', unitPrice: line.unitPrice.toFixed(2),
+              discount: '0', tax: String(pieceTax), total: String(r2(pieceSubtotal + pieceTax)), unitCost: part.unitCost, stockLotId: part.lotId,
             })
           })
         }
         const insertedItems = await tx.insert(posSaleItems).values(saleItems).returning()
 
-        await tx.insert(posPayments).values(payments.map((p: any) => ({ saleId: sale.id, method: s(p.method, 30), amount: String(r2(n(p.amount))), reference: s(p.reference, 200) || null })))
+        await tx.insert(posPayments).values(tendered.map((p: any) => ({ saleId: sale.id, method: s(p.method, 30), amount: String(r2(n(p.amount))), reference: s(p.reference, 200) || null })))
+        // A credit sale is not a Paid invoice: only what was tendered now counts as paid, the rest is a receivable.
+        const paidNow = r2(total - credit)
         const [invoice] = await tx.insert(invoiceRecords).values({
           orderId: null, posSaleId: sale.id, invoiceNumber: `POS-${bill}`, subtotal: String(subtotal), tax: String(tax),
-          total: String(total), paid: String(total), status: 'Paid', issuedAt: new Date(),
+          total: String(total), paid: String(paidNow), status: credit === 0 ? 'Paid' : paidNow > 0 ? 'Partially Paid' : 'Issued', issuedAt: new Date(),
         }).returning()
-        await tx.insert(paymentRecords).values(payments.map((p: any) => ({
-          orderId: null, invoiceId: invoice.id, posSaleId: sale.id, amount: String(r2(n(p.amount))), method: s(p.method, 30), reference: s(p.reference, 200) || null,
-        })))
+        const nonCredit = tendered.filter((p: any) => s(p.method, 30) !== 'Credit')
+        if (nonCredit.length) {
+          await tx.insert(paymentRecords).values(nonCredit.map((p: any) => ({
+            orderId: null, invoiceId: invoice.id, posSaleId: sale.id, amount: String(r2(n(p.amount))), method: s(p.method, 30), reference: s(p.reference, 200) || null,
+          })))
+        }
+        let receivable: typeof customerReceivables.$inferSelect | null = null
+        if (credit > 0) {
+          ;[receivable] = await tx.insert(customerReceivables).values({ saleId: sale.id, outletId: outlet.id, franchiseId: outlet.franchiseId, customerId: customerId!, originalAmount: String(credit), status: 'Open' }).returning()
+        }
         await tx.insert(auditEvents).values({
           actorUserId: actor, franchiseId: outlet.franchiseId, entityType: 'pos_sale', entityId: sale.id,
-          action: 'completed', metadata: { outletId: outlet.id, billNumber: bill, total, invoiceId: invoice.id, idempotencyKey: key },
+          action: 'completed', metadata: { outletId: outlet.id, billNumber: bill, total, tax, creditAmount: credit, receivableId: receivable?.id ?? null, invoiceId: invoice.id, idempotencyKey: key },
         })
-        return { status: 201, body: { sale, invoice, items: insertedItems } }
+        return { status: 201, body: { sale, invoice, items: insertedItems, receivable } }
+      })
+      return respond(done, headers)
+    }
+
+    if (action === 'collect-receivable') {
+      const denied = editOnly(); if (denied) return denied
+      const receivableId = uid(data.receivableId), shiftId = uid(data.shiftId), amount = n(data.amount, Number.NaN), method = s(data.method, 30) || 'Cash'
+      if (!receivableId) return Response.json({ error: 'Receivable not found.' }, { status: 404, headers })
+      if (!shiftId) return Response.json({ error: 'An open shift is required to take a payment.' }, { status: 400, headers })
+      if (!Number.isFinite(amount) || amount <= 0) return Response.json({ error: 'Payment amount must be greater than zero.' }, { status: 400, headers })
+      if (!['Cash', 'UPI', 'Card'].includes(method)) return Response.json({ error: 'A receivable is paid by Cash, UPI or Card.' }, { status: 400, headers })
+      const done = await run(async tx => {
+        const [peek] = await tx.select().from(customerReceivables).where(eq(customerReceivables.id, receivableId))
+        if (!peek || !scope(access, peek.franchiseId)) throw new Rejection(404, 'Receivable not found.')
+        const [shift] = await tx.select().from(posShifts).where(eq(posShifts.id, shiftId)).for('share')
+        const [shiftOutlet] = shift ? await tx.select().from(posOutlets).where(eq(posOutlets.id, shift.outletId)) : []
+        if (!shift || shift.status !== 'Open' || !shiftOutlet || (shiftOutlet.franchiseId ?? null) !== (peek.franchiseId ?? null)) throw new Rejection(400, 'An open shift of this franchise is required to take a payment.')
+        // The receivable row is the lock for its open balance: concurrent payments queue here and re-read it.
+        const [rec] = await tx.select().from(customerReceivables).where(eq(customerReceivables.id, receivableId)).for('update')
+        const open = r2(n(rec.originalAmount) - n(rec.returnedAmount) - n(rec.paidAmount))
+        if (r2(amount) > open + 0.0001) throw new Rejection(409, `The payment exceeds the open balance of ${open.toFixed(2)}.`)
+        const [payment] = await tx.insert(receivablePayments).values({ receivableId, outletId: shift.outletId, franchiseId: rec.franchiseId, shiftId, amount: String(r2(amount)), method, reference: s(data.reference, 200) || null, receivedBy: actor }).returning()
+        const paid = r2(n(rec.paidAmount) + amount), remaining = r2(open - amount)
+        const [updated] = await tx.update(customerReceivables).set({ paidAmount: String(paid), status: remaining <= 0.0001 ? 'Paid' : 'Partially Paid', updatedAt: new Date() }).where(eq(customerReceivables.id, receivableId)).returning()
+        const [invoice] = await tx.select().from(invoiceRecords).where(eq(invoiceRecords.posSaleId, rec.saleId)).orderBy(desc(invoiceRecords.createdAt)).limit(1).for('update')
+        if (invoice) {
+          const invoicePaid = Math.min(n(invoice.total), r2(n(invoice.paid) + amount))
+          await tx.update(invoiceRecords).set({ paid: String(invoicePaid), status: remaining <= 0.0001 ? 'Paid' : 'Partially Paid', updatedAt: new Date() }).where(eq(invoiceRecords.id, invoice.id))
+          await tx.insert(paymentRecords).values({ orderId: null, invoiceId: invoice.id, posSaleId: rec.saleId, amount: String(r2(amount)), method, reference: payment.id })
+        }
+        await tx.insert(auditEvents).values({ actorUserId: actor, franchiseId: rec.franchiseId, entityType: 'receivable_payment', entityId: payment.id, action: 'collected', metadata: { receivableId, saleId: rec.saleId, amount, method, shiftId, balanceAfter: remaining, idempotencyKey: key } })
+        return { status: 201, body: { receivable: updated, payment, balance: remaining } }
       })
       return respond(done, headers)
     }
@@ -183,6 +258,7 @@ export default async (req: Request) => {
       if (data.referenceId && !uid(data.referenceId)) return Response.json({ error: 'referenceId must be a UUID.' }, { status: 400, headers })
       const done = await run(async tx => {
         const outlet = await loadOutlet(tx, access, outletId).catch(() => { throw new Rejection(400, 'Valid outlet, product and quantity are required.') })
+        const price = await companyPrice(tx, product, outlet.franchiseId)
         const lots = await lockCompanyLots(tx, product)
         let remaining = r3(qty)
         const rows = []
@@ -190,7 +266,7 @@ export default async (req: Request) => {
           const take = Math.min(n(lot.quantity), remaining)
           if (take <= EPS) continue
           const { ledger } = await receiveFromCompanyLot(tx, {
-            companyLot: lot, take: r3(take), outlet, type: 'TransferIn', actor,
+            companyLot: lot, take: r3(take), outlet, type: 'TransferIn', actor, unitCost: price === null ? null : price.toFixed(4),
             referenceType: s(data.referenceType, 50) || 'STOCK_TRANSFER', referenceId: uid(data.referenceId),
           })
           rows.push(ledger)
@@ -239,22 +315,34 @@ export default async (req: Request) => {
           if (lot && lot.posOutletId === sale.outletId) lotId = lot.id
         }
         const refs = { referenceType: 'POS_RETURN', referenceId: ret.id, saleId, reason }
-        const restocked = await addStock(tx, { outlet: saleOutlet, product: item.product, quantity: qty, lotId, type: 'Return', actor, newLotPrefix: 'RET', ...refs })
+        const restocked = await addStock(tx, { outlet: saleOutlet, product: item.product, quantity: qty, lotId, type: 'Return', actor, newLotPrefix: 'RET', unitCost: item.unitCost, ...refs })
         if (disposition === 'Wastage') {
           await moveStock(tx, { outletId: sale.outletId, franchiseId: saleOutlet.franchiseId, product: item.product, lotId: restocked.stockLotId!, type: 'Wastage', quantity: -qty, actor, ...refs, reason: `Returned goods discarded${reason ? `: ${reason}` : ''}` })
         }
-        await tx.insert(posPayments).values({ saleId, method: refundMethod, amount: String(-refundAmount), reference: `RETURN:${ret.id}`, status: 'Reversed' })
+        // On a credit sale the refund first cancels what the customer still owes; only the rest goes back as money.
+        let cashRefund = refundAmount, creditCancelled = 0
+        const [receivable] = await tx.select().from(customerReceivables).where(eq(customerReceivables.saleId, saleId)).for('update')
+        if (receivable) {
+          const open = r2(n(receivable.originalAmount) - n(receivable.returnedAmount) - n(receivable.paidAmount))
+          creditCancelled = Math.min(open, refundAmount)
+          cashRefund = r2(refundAmount - creditCancelled)
+          if (creditCancelled > 0) {
+            const stillOpen = r2(open - creditCancelled)
+            await tx.update(customerReceivables).set({ returnedAmount: String(r2(n(receivable.returnedAmount) + creditCancelled)), status: stillOpen <= 0.0001 ? 'Paid' : n(receivable.paidAmount) > 0 || n(receivable.returnedAmount) + creditCancelled > 0 ? 'Partially Paid' : 'Open', updatedAt: new Date() }).where(eq(customerReceivables.id, receivable.id))
+          }
+        }
+        if (cashRefund > 0) await tx.insert(posPayments).values({ saleId, method: refundMethod, amount: String(-cashRefund), reference: `RETURN:${ret.id}`, status: 'Reversed' })
         const [invoice] = await tx.select().from(invoiceRecords).where(eq(invoiceRecords.posSaleId, saleId)).orderBy(desc(invoiceRecords.createdAt)).limit(1).for('update')
-        if (invoice) {
-          const paid = r2(Math.max(0, n(invoice.paid) - refundAmount))
+        if (invoice && cashRefund > 0) {
+          const paid = r2(Math.max(0, n(invoice.paid) - cashRefund))
           await tx.update(invoiceRecords).set({ paid: String(paid), status: paid >= n(invoice.total) ? 'Paid' : paid > 0 ? 'Partially Paid' : 'Issued', updatedAt: new Date() }).where(eq(invoiceRecords.id, invoice.id))
-          await tx.insert(paymentRecords).values({ orderId: null, invoiceId: invoice.id, posSaleId: saleId, amount: String(-refundAmount), method: 'Refund', reference: ret.id, status: 'Reversed' })
+          await tx.insert(paymentRecords).values({ orderId: null, invoiceId: invoice.id, posSaleId: saleId, amount: String(-cashRefund), method: 'Refund', reference: ret.id, status: 'Reversed' })
         }
         await tx.insert(auditEvents).values({
           actorUserId: actor, franchiseId: saleOutlet.franchiseId, entityType: 'pos_return', entityId: ret.id,
-          action: 'created', metadata: { saleId, itemId, quantity: qty, refundAmount, refundMethod, disposition, stockLotId: restocked.stockLotId, idempotencyKey: key },
+          action: 'created', metadata: { saleId, itemId, quantity: qty, refundAmount, cashRefund, creditCancelled, refundMethod, disposition, stockLotId: restocked.stockLotId, idempotencyKey: key },
         })
-        return { status: 201, body: { return: ret, refundAmount } }
+        return { status: 201, body: { return: ret, refundAmount, cashRefund, creditCancelled } }
       })
       return respond(done, headers)
     }
@@ -335,7 +423,10 @@ export default async (req: Request) => {
         if (!outlet || !scope(access, outlet.franchiseId)) throw new Rejection(403, 'Outlet access denied.')
         const rows = await tx.select().from(posPayments).innerJoin(posSales, eq(posPayments.saleId, posSales.id)).where(eq(posSales.shiftId, shiftId))
         const byMethod = (m: string) => rows.filter(r => r.pos_payments.method === m).reduce((a, r) => a + n(r.pos_payments.amount), 0)
-        const cash = byMethod('Cash'), upi = byMethod('UPI'), card = byMethod('Card'), credit = byMethod('Credit')
+        // Money taken in this shift against earlier credit sales counts as collected cash / UPI / card, so it is in the expected cash.
+        const collected = await tx.select().from(receivablePayments).where(eq(receivablePayments.shiftId, shiftId))
+        const fromReceivables = (m: string) => collected.filter(r => r.method === m).reduce((a, r) => a + n(r.amount), 0)
+        const cash = byMethod('Cash') + fromReceivables('Cash'), upi = byMethod('UPI') + fromReceivables('UPI'), card = byMethod('Card') + fromReceivables('Card'), credit = byMethod('Credit')
         const sales = await tx.select().from(posSales).where(eq(posSales.shiftId, shiftId))
         const grossSales = sales.reduce((a, r) => a + n(r.subtotal) + n(r.tax), 0)
         const discounts = sales.reduce((a, r) => a + n(r.discount), 0)

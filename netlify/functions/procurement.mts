@@ -1,4 +1,5 @@
 import type { Config } from '@netlify/functions'
+import { companyPrice } from '../../db/pricing.js'
 import { and, desc, eq, ne, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { auditEvents, franchises, records, stockLots } from '../../db/schema.js'
@@ -185,8 +186,10 @@ export default async (req: Request) => {
         const lots = await lockCompanyLots(tx, product, grn.stockLotId)
         const lot = lots[0]
         if (!lot || num(lot.quantity) + EPS < quantity) throw new Rejection(409, `Insufficient company stock for ${product}.`)
+        // The child lot carries the company price in force at transfer as its unit cost (null when no price is configured; never guessed).
+        const price = await companyPrice(tx, product, franchiseId)
         const { ledger, lot: franchiseLot } = await receiveFromCompanyLot(tx, {
-          companyLot: lot, take: quantity, outlet, type: 'SupplyIn', actor,
+          companyLot: lot, take: quantity, outlet, type: 'SupplyIn', actor, unitCost: price === null ? null : price.toFixed(4),
           referenceType: 'FRANCHISE_SUPPLY', referenceId: supplyRequestId, supplyRequestId, purchaseOrderId, goodsReceiptId,
         })
         const delivered = r3(deliveredSoFar + quantity)
