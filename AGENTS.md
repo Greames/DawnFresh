@@ -34,6 +34,8 @@ The React application uses TanStack Start/Router and the Netlify Vite adapter. T
 
 The database is the source of truth. Demo fixtures are illustrations only and must never be saved or presented as live records. React state is a rendering cache/form state, not persistent storage. Do not replace Netlify Database with local files, browser storage or external databases. Do not use Netlify Blobs for structured operational records.
 
+Stock model (details in `docs/engineering/wave2-notes.md`): company stock is `stock_lots` with no franchise and no outlet; everything an outlet holds is its own lots, and every change is a row in `outlet_stock_ledger` posted under a lock on that outlet/product's `stock_balances` row (`db/stock.ts`). A franchise's stock is the sum of its outlets. Money columns are `numeric(16,2)`, quantities `numeric(16,3)`. Retried writes carry an `Idempotency-Key` handled by `db/tx.ts`; multi-statement flows run in one transaction with their audit event. `franchise_stock_ledger` is frozen legacy.
+
 Orders and sourcing do not automatically change stock quantities. A stock lot is a manually maintained available quantity with batch/expiry/temperature fields. The delivery screen is a filtered order view, not a separate transport ledger. An order holds one product line. Payments are an entered cumulative paid amount, not an audited transaction ledger.
 
 Google Places search returns at most 20 businesses; do not label it exhaustive. Provider results are reviewed before record creation. Saved leads are filtered by actual coordinates and straight-line distance. Map pins are an explicitly labelled illustration, not geographic plotting. Respect the provider's attribution and data-use terms.
