@@ -371,3 +371,65 @@ Mark PASS, FAIL (note the conflicting name and owner) or UNSURE. A similar pendi
 2. Is Tulasi a personal or family name, or the plant? Are you comfortable with TulaFresh, with the Tulasi link kept private?
 
 Sources added: https://en.wikipedia.org/wiki/Velama, https://joshuaproject.net/people_groups/18304/IN, https://list.indology.info/pipermail/indology/1998-April/011895.html, https://www.indiatvnews.com/pincode/telangana/nalgonda/velamjala, https://pin.codes.in/pincode/531030/velamamidi, https://www.freepressjournal.in/mind-matters/the-greatness-of-tulsi-and-tulsi-vivah, https://shubhpanchang.com/festivals/tulsi-marriage-begins, https://icharchive.intach.org/Myheritagedetail/Index?id=66, https://www.deccanherald.com/india/maharashtra/police-seal-navi-mumbai-meat-shop-for-hurting-religious-sentiments-3068821, https://organiser.org/2023/05/02/172044/bharat/hindus-protested-against-a-muslim-dhaba-owner-for-hiding-his-identity-keeping-the-name-of-eatery-as-shiva-dhaba/, https://sabrangindia.in/hindu-extremist-groups-target-meat-shops-in-multiple-indian-cities/, https://trademark.justia.com/990/47/tulsi-royal-khajoor-99047742.html, https://m.indiamart.com/sritulasiconsumerproducts-services, https://www.globallinker.com/seller/tulasi-exports, https://en.wikipedia.org/wiki/Tulasi_(2007_film)
+
+---
+
+# VelamFresh update: Velam is the owner's surname
+
+**No name is cleared. Legal points below are from search summaries of secondary sources and are UNVERIFIED; the trademark attorney must confirm each one.** I assume nothing about intent beyond: Velam is the owner's surname, and an operator may later take over the business.
+
+## 1. Surname brands in Indian food
+
+- **Evidence found:** Only one example was researched. Haldiram's is named after the founder's nickname ("Haldiram Ji"), not the family surname (Agarwal) (storyboard18.com, Wikipedia/Haldirams, substack case studies). It also shows the risk: family members have fought in court over who may use the brand name, and relatives rebranded to "Prabhuji: From the house of Haldiram's" after a 2013 ruling (same sources, secondary). The search did not return surname examples in meat or poultry. Other founder-name brands exist in Indian food (general knowledge, UNVERIFIED, not searched), but I will not list any without a source.
+- **Takeaway:** personal-name brands are common and give trust, but the name is tied to the family, so succession, partner disputes and operator handover must be settled in writing from day one.
+
+## 2. Trademark treatment of surnames in India (UNVERIFIED, for the attorney)
+
+- A commentary says the old 1958 Act expressly barred surname registration, while the Trade Marks Act 1999 does not contain that limit (ssrana.in, mondaq.com).
+- Names count as marks (Section 2(1)(m)). The main hurdle is Section 9(1)(a) (distinctive character). A common surname can draw an objection that it is a common surname or personal name. A 2026 Delhi High Court decision (ADS Spirits v. Registrar of Trade Marks, reported by verdictum.in and theindianlawyer.in) held that Section 9(1)(a) tests distinctive character in relation to the goods, not "uniqueness". The mark in that case was a common surname-like word, but I have not read the judgment.
+- Acquired distinctiveness through use can overcome an objection (Section 9(1) proviso, per the same commentary), and honest concurrent use can be registered (Section 12). The combined mark "VelamFresh" with a rooster logo is more likely to be distinctive than "Velam" alone, because "Fresh" is descriptive and weak (attorney to advise on whether to disclaim "Fresh" and on logo versus wordmark filing).
+- **Unconfirmed in this search:** how Registry examiners treat a rarely used surname versus a common one, Section 11 conflicts with other Velam marks, and any consent requirement for a personal name. Ask the attorney for a written opinion.
+
+## 3. Franchising, ownership and operator handover
+
+- India has no standalone franchise statute; franchising rests on contract, competition, consumer and IP law, and the trademark licence falls under the Trade Marks Act 1999 (atblegal.com, iiprd.com, incorpx.io). The franchisor should own the brand and control quality; failure to control use risks "naked licensing" (same sources). Sources conflict on registered-user and licence registration sections and on a six-month deadline: attorney to confirm.
+- **For a surname brand, decide now who owns the mark.** Options for the attorney and CA to compare: (a) the business entity (LLP/Pvt Ltd) owns the trademark, and the owner as individual assigns any prior rights in the name to it; (b) the owner personally holds the mark and licenses it to the entity and franchisees. Option (a) makes sale or handover simpler; option (b) keeps control with the owner but complicates financing, partners and operator takeover. Which is better depends on tax, control and exit plans, not covered here.
+- **If an operator takes over:** the agreement must state whether the operator buys the business including the name (assignment), only licenses it for a term, or must rebrand on exit. If the name is the owner's surname, the owner may not want it on a business they no longer control; a neutral coined name avoids this problem and is easier to sell. Also address: use of the owner's personal name in advertising, owner's personal liability image if the operator fails food safety, non-compete, and whether the owner may use the surname in a future business.
+- **Franchisees and customers outside AP/Telangana** will see an unfamiliar word; inside the Telugu states, the name will be read as a surname.
+
+## 4. Community association (see the VelamFresh section above)
+
+Velama is a recognised caste name in Andhra Pradesh and Telangana (Wikipedia/Velama, Joshua Project). A surname brand will be read by many local customers as carrying that association, whatever the owner's intent. Brand names carrying a caste or religious signal can draw social-media commentary, and customers of other communities may feel the business is not for them. No evidence of a specific backlash against a "Velam" food brand was found; this is judgement. A franchise network, which depends on a neutral name working for any investor and customer, is more exposed than a single family shop. Use of the surname is the owner's right; the point is commercial fit with the stated goal of a neutral name.
+
+## 5. Final recommendation (judgement, not clearance)
+
+1. **TulaFresh** (first choice): neutral, no personal or community tie, easy to hand to an operator or franchisee, scales story, rooster-on-scales logo. Main risk: "Tula/Tulsi" marks are crowded (NOT CHECKED).
+2. **DawnFresh**: neutral, easy to own and assign; common word "Dawn".
+3. **FreshRoost**: clearest chicken hint; "Roast" phonetic neighbour.
+4. **VelamFresh**: rank fourth. It is a legitimate family-name brand with trust value and possibly lower search crowding, but it fails the owner's neutrality constraint on current evidence, complicates operator takeover and franchise ownership, and lacks a chicken hint. It becomes reasonable if the owner decides the family name matters more than neutrality and the attorney confirms registrability and ownership structure. A compromise: use a neutral brand (TulaFresh) for franchise and wholesale, and mention "a Velam family business" only in the story line, decided with the attorney.
+
+Updated final-three table (replaces the earlier one):
+
+| Rank | Name | Why | Main risks (all trademarks NOT CHECKED) |
+|---|---|---|---|
+| 1 | TulaFresh (search Tulasi, Tulsi, Thulasi, Tulasee variants too) | Neutral, scales story, easy to assign or license | "Tula/Tulsi" crowded; Fresh weak |
+| 2 | DawnFresh | Rooster-at-dawn logo; neutral | "Dawn" common; "Don" sound |
+| 3 | FreshRoost | Chicken hint | "Roast" phonetic conflict, class 43 |
+| 4 (owner option) | VelamFresh | Family name, trust | Community reading, handover and ownership complexity, no chicken hint |
+
+## 6. CA / attorney checklist: additions for VelamFresh and surname ownership
+
+Use the earlier checklist (pass/fail table, decision rule, 25 Oct deadline) with these changes. Add a fourth column "VelamFresh" if the owner wants it checked; the attorney should run all four. The decision rule stays: work down in rank order (TulaFresh, DawnFresh, FreshRoost, then VelamFresh); the first name with no FAIL on IP India and MCA and acceptable domain/handle results becomes final. If the owner chooses VelamFresh as the first choice, move it up and record that it was chosen despite the neutrality concern.
+
+Extra items for VelamFresh:
+- IP India phonetic and spelling search: Velam, Velama, Velamma, Velem, Velaam, Vellam, Welam, Velham, with Fresh/Fressh/Freshh, Classes 29, 35 (and 43/39 if relevant), and script forms (వెలం, వెలమ). Note other Velam/Velama marks in food or retail.
+- Written attorney opinion on surname registrability under Section 9, whether to file the wordmark or a logo mark, and any disclaimer of "Fresh".
+- Written decision on trademark ownership (entity vs owner) and a template trademark licence for franchisees and an operator, including exit and handover terms.
+- Domains and handles for the main spellings; Google Maps/Justdial for Velam-named food businesses in AP and Telangana.
+- Sensitivity check with customers from different communities.
+
+## Question for the owner
+
+Do you want the family name on the business even if an operator takes over later, and is a neutral brand with "a Velam family business" in the story an acceptable compromise?
+
+Sources added: https://ssrana.in/articles/protection-surname-trade-marks/, https://mondaq.com/india/trademark/1248372/protection-accorded-to-surname-trademarks-india, https://www.verdictum.in/delhi-high-court/ads-spirits-pvt-ltd-v-the-registrar-of-trade-marks-2026dhc5783-uniqueness-1618587, https://theindianlawyer.in/delhi-high-court-distinctiveness-under-section-91a-must-be-tested-qua-the-goods-not-on-a-standard-of-uniqueness/, https://www.storyboard18.com/quantum-brief/haldirams-how-a-small-sweet-shop-in-bikaner-became-a-global-snack-brand-13483.htm, https://wikipedia.com/wiki/Haldirams, https://atblegal.com/india/commercial-ip/franchising/, https://www.iiprd.com/franchising-as-a-form-of-trademark-licensing/, https://www.incorpx.io/blog/franchise-business-registration-india
