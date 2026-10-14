@@ -1,5 +1,5 @@
 import { pgTable, text, uuid, timestamp, integer, numeric, index } from 'drizzle-orm/pg-core'
-import { franchises, appUsers, customers, stockLots } from './schema.js'
+import { franchises, appUsers, customers, stockLots, records } from './schema.js'
 
 export const posOutlets = pgTable('pos_outlets', {
   id: uuid().defaultRandom().primaryKey(),
@@ -72,6 +72,8 @@ export const posReturns = pgTable('pos_returns', {
   quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull(),
   amount: numeric('amount', { precision: 16, scale: 2 }).notNull(),
   reason: text(),
+  // Restock = goes back on the outlet ledger as sellable stock; Waste = restocked then written off (spoiled/unsellable).
+  disposition: text().notNull().default('Restock'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
@@ -106,7 +108,15 @@ export const outletStockLedger = pgTable('outlet_stock_ledger', {
   quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull(),
   referenceType: text('reference_type'),
   referenceId: uuid('reference_id'),
+  // Traceability for company -> franchise outlet receipts (supply request, purchase order, GRN).
+  supplyRequestId: uuid('supply_request_id').references(() => records.id),
+  purchaseOrderId: uuid('purchase_order_id'),
+  goodsReceiptId: uuid('goods_receipt_id'),
+  // Pairs the TransferOut/TransferIn movements of one outlet-to-outlet transfer.
+  transferGroupId: uuid('transfer_group_id'),
+  reason: text(),
+  // Convenience snapshot only; availability is always the sum of `quantity`.
   balanceAfter: numeric('balance_after', { precision: 16, scale: 3 }).notNull().default('0'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   createdBy: uuid('created_by').references(() => appUsers.id),
-}, table => [index('outlet_stock_ledger_outlet_product_idx').on(table.outletId, table.product, table.createdAt), index('outlet_stock_ledger_ref_idx').on(table.referenceType, table.referenceId)])
+}, table => [index('outlet_stock_ledger_outlet_product_idx').on(table.outletId, table.product, table.createdAt), index('outlet_stock_ledger_ref_idx').on(table.referenceType, table.referenceId), index('outlet_stock_ledger_lot_idx').on(table.outletId, table.product, table.stockLotId), index('outlet_stock_ledger_supply_request_idx').on(table.supplyRequestId), index('outlet_stock_ledger_transfer_idx').on(table.transferGroupId)])
