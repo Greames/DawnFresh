@@ -4,6 +4,7 @@ import { db } from '../../db/index.js'
 import { auditEvents, customers, invoiceRecords, paymentRecords, stockLots } from '../../db/schema.js'
 import { outletStockLedger, posOutlets, posPayments, posReconciliations, posReturns, posSaleItems, posSales, posShifts } from '../../db/pos-schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
+import { allocateFifo, debitFifo, lotBuckets, outletBalance, postMovement } from '../../db/outlet-stock.js'
 
 const products = ['Chicken', 'Mutton', 'Eggs', 'Fish', 'Prawns']
 const methods = ['Cash', 'UPI', 'Card', 'Credit']
@@ -12,12 +13,8 @@ const s = (v: unknown, m = 500) => typeof v === 'string' ? v.trim().slice(0, m) 
 const scope = (access: Awaited<ReturnType<typeof resolveAccess>>, franchiseId?: string | null) =>
   access.role !== 'franchisee' || (!!franchiseId && access.franchise?.id === franchiseId)
 
-// Movement quantities are the source of truth; balanceAfter can be ambiguous when timestamps tie.
-const latestBalance = async (tx: any, outletId: string, product: string) => {
-  const rows = await tx.select({ quantity: outletStockLedger.quantity }).from(outletStockLedger)
-    .where(and(eq(outletStockLedger.outletId, outletId), eq(outletStockLedger.product, product)))
-  return rows.reduce((total: number, row: { quantity: unknown }) => total + n(row.quantity), 0)
-}
+const EPS = 0.000001
+const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export default async (req: Request) => {
   const headers = { 'Cache-Control': 'no-store' }
@@ -36,12 +33,22 @@ export default async (req: Request) => {
         db.select().from(posReconciliations).orderBy(desc(posReconciliations.businessDate)),
       ])
       const visibleOutletIds = new Set(outlets.filter(x => scope(access, x.franchiseId)).map(x => x.id))
+      // Available stock = sum of ledger movement quantities per outlet and product (never balance_after).
+      const visibleLedger = ledger.filter(x => visibleOutletIds.has(x.outletId))
+      const stockMap = new Map<string, { outletId: string; product: string; quantity: number }>()
+      for (const row of visibleLedger) {
+        const key = `${row.outletId}:${row.product}`
+        const entry = stockMap.get(key) ?? { outletId: row.outletId, product: row.product, quantity: 0 }
+        entry.quantity = Math.round((entry.quantity + n(row.quantity)) * 1000) / 1000
+        stockMap.set(key, entry)
+      }
       return Response.json({
+        stock: [...stockMap.values()],
         outlets: outlets.filter(x => visibleOutletIds.has(x.id)),
         shifts: shifts.filter(x => visibleOutletIds.has(x.outletId)),
         sales: sales.filter(x => visibleOutletIds.has(x.outletId)),
         payments: payments.filter(x => sales.some(y => y.id === x.saleId && visibleOutletIds.has(y.outletId))),
-        ledger: ledger.filter(x => visibleOutletIds.has(x.outletId)),
+        ledger: visibleLedger,
         reconciliations: recs.filter(x => visibleOutletIds.has(x.outletId)),
       }, { headers })
     }
@@ -129,11 +136,13 @@ export default async (req: Request) => {
             lockedShift.outletId !== outletId || lockedShift.status !== 'Open') {
           throw new Error('The outlet shift is no longer open. Refresh POS and try again.')
         }
-        const balances = new Map<string, number>()
+        // Stock is allocated FIFO from the outlet ledger under the outlet lock. Client lot ids and any
+        // allowNegativeStock flag are ignored entirely: the server alone decides which lots are sold.
+        const allocationsByProduct = new Map<string, Array<{ lotId: string | null; quantity: number }>>()
         for (const [product, requested] of requestedByProduct) {
-          const balance = await latestBalance(tx, outletId, product)
-          balances.set(product, balance)
-          if (balance - requested < -0.000001) throw new Error(`Insufficient outlet stock for ${product}. Available: ${balance}; requested: ${requested}.`)
+          const balance = await outletBalance(tx, outletId, product)
+          if (balance - requested < -EPS) throw new Error(`Insufficient outlet stock for ${product}. Available: ${balance}; requested: ${requested}.`)
+          allocationsByProduct.set(product, await allocateFifo(tx, outletId, product, requested))
         }
 
         const bill = s(data.billNumber, 80) || `POS-${Date.now()}`
@@ -143,13 +152,31 @@ export default async (req: Request) => {
           subtotal: String(subtotal), discount: String(discount), tax: String(tax), total: String(total), status: 'Completed',
         }).returning()
 
+        // Pre-assign lots per line from the product allocation (consumed in line order) so each sale item records its primary lot.
+        const lineLots: Array<Array<{ lotId: string | null; quantity: number }>> = []
+        const cursors = new Map<string, Array<{ lotId: string | null; quantity: number }>>()
+        for (const [product, list] of allocationsByProduct) cursors.set(product, list.map(x => ({ ...x })))
         for (const item of items) {
+          const product = s(item.product, 80)
+          let need = n(item.quantity)
+          const mine: Array<{ lotId: string | null; quantity: number }> = []
+          for (const slot of cursors.get(product) ?? []) {
+            if (need <= EPS) break
+            if (slot.quantity <= EPS) continue
+            const take = Math.min(slot.quantity, need)
+            slot.quantity -= take; need -= take
+            mine.push({ lotId: slot.lotId, quantity: take })
+          }
+          lineLots.push(mine)
+        }
+
+        for (const [index, item] of items.entries()) {
           const product = s(item.product, 80), qty = n(item.quantity)
           await tx.insert(posSaleItems).values({
             saleId: sale.id, product, quantity: String(qty), unit: s(item.unit, 20) || 'kg',
             unitPrice: String(n(item.unitPrice)), discount: String(n(item.discount)), tax: String(n(item.tax)),
             total: String(Math.max(0, qty * n(item.unitPrice) - n(item.discount) + n(item.tax))),
-            stockLotId: item.stockLotId ? s(item.stockLotId, 80) : null,
+            stockLotId: lineLots[index][0]?.lotId ?? null,
           })
         }
 
@@ -172,15 +199,14 @@ export default async (req: Request) => {
           })
         }
 
-        for (const item of items) {
-          const product = s(item.product, 80), qty = n(item.quantity)
-          const balanceAfter = (balances.get(product) ?? 0) - qty
-          balances.set(product, balanceAfter)
-          await tx.insert(outletStockLedger).values({
-            outletId, product, stockLotId: item.stockLotId ? s(item.stockLotId, 80) : null,
-            movementType: 'Sale', quantity: String(-qty), referenceType: 'POS_SALE',
-            referenceId: sale.id, balanceAfter: String(balanceAfter), createdBy: actor,
-          })
+        for (const [index, item] of items.entries()) {
+          const product = s(item.product, 80)
+          for (const part of lineLots[index]) {
+            await postMovement(tx, {
+              outletId, product, stockLotId: part.lotId, movementType: 'Sale', quantity: -part.quantity,
+              referenceType: 'POS_SALE', referenceId: sale.id, createdBy: actor,
+            })
+          }
         }
         await tx.insert(auditEvents).values({
           actorUserId: actor, franchiseId: outlet.franchiseId, entityType: 'pos_sale', entityId: sale.id,
@@ -191,55 +217,128 @@ export default async (req: Request) => {
       return Response.json(result, { status: 201, headers })
     }
 
+    // Moves stock the outlet's own side already owns (company lots for company outlets, the franchise's own
+    // processed lots for franchise outlets) onto the outlet ledger. Company stock NEVER reaches a franchise
+    // outlet through this action; that only happens via procurement `transfer-to-franchise`, which is capped
+    // to the approved supply request.
     if (action === 'transfer-stock') {
       if (!allowed(access, 'pos', 'edit')) return Response.json({ error: 'POS edit access is required.' }, { status: 403, headers })
       const outletId = s(data.outletId, 80), product = s(data.product, 80), qty = n(data.quantity)
       const [outlet] = await db.select().from(posOutlets).where(eq(posOutlets.id, outletId))
-      if (!outlet || !scope(access, outlet.franchiseId) || !products.includes(product) || qty <= 0) return Response.json({ error: 'Valid outlet, product and quantity are required.' }, { status: 400, headers })
+      if (!outlet || !scope(access, outlet.franchiseId) || !products.includes(product) || !(qty > 0)) return Response.json({ error: 'Valid outlet, product and quantity are required.' }, { status: 400, headers })
 
       const result = await db.transaction(async tx => {
-        // Lock the outlet and company lots so concurrent transfers cannot reuse the same stock.
         const [lockedOutlet] = await tx.select().from(posOutlets).where(eq(posOutlets.id, outletId)).for('update')
-        if (!lockedOutlet || !scope(access, lockedOutlet.franchiseId)) throw new Error('Outlet access changed. Refresh and retry.')
+        if (!lockedOutlet || !scope(access, lockedOutlet.franchiseId) || lockedOutlet.status !== 'Active') throw new Error('Outlet access changed. Refresh and retry.')
         let remaining = qty
-        // Only stock owned by the outlet's own side (company, or the same franchise) may be allocated.
         const owner = lockedOutlet.franchiseId ? eq(stockLots.franchiseId, lockedOutlet.franchiseId) : isNull(stockLots.franchiseId)
         const lots = await tx.select().from(stockLots)
           .where(and(owner, eq(stockLots.product, product), eq(stockLots.stage, 'Finished stock'), eq(stockLots.status, 'Available')))
           .orderBy(asc(stockLots.createdAt)).for('update')
 
-        const allocations: Array<{ lotId: string; quantity: number }> = []
+        const rows = []
         for (const lot of lots) {
+          if (remaining <= EPS) break
           const available = Math.max(0, n(lot.quantity))
           if (available <= 0) continue
           const take = Math.min(available, remaining)
-          allocations.push({ lotId: lot.id, quantity: take })
           remaining -= take
-          if (remaining <= 0.000001) break
-        }
-        if (remaining > 0.000001) throw new Error(`Insufficient company stock for ${product}.`)
-
-        const rows = []
-        for (const allocation of allocations) {
-          const [lot] = await tx.select().from(stockLots).where(eq(stockLots.id, allocation.lotId))
-          if (!lot || n(lot.quantity) < allocation.quantity) throw new Error(`Stock changed while transferring ${product}. Please retry.`)
-          const newQty = n(lot.quantity) - allocation.quantity
+          const newQty = available - take
           await tx.update(stockLots).set({ quantity: String(newQty), status: newQty > 0 ? 'Available' : 'Depleted', updatedAt: new Date() }).where(eq(stockLots.id, lot.id))
-          const currentOutletBalance = await latestBalance(tx as typeof db, outletId, product)
-          const [row] = await tx.insert(outletStockLedger).values({
-            outletId, product, stockLotId: lot.id, movementType: 'TransferIn', quantity: String(allocation.quantity),
-            referenceType: s(data.referenceType, 50) || 'STOCK_TRANSFER', referenceId: data.referenceId ? s(data.referenceId, 80) : null,
-            balanceAfter: String(currentOutletBalance + allocation.quantity), createdBy: actor,
-          }).returning()
+          const row = await postMovement(tx, {
+            outletId, product, stockLotId: lot.id, movementType: 'TransferIn', quantity: take,
+            referenceType: 'STOCK_TRANSFER', referenceId: lot.id, createdBy: actor,
+          })
           rows.push(row)
           await tx.insert(auditEvents).values({
-            actorUserId: actor, franchiseId: outlet.franchiseId, entityType: 'stock_transfer', entityId: row.id,
-            action: 'company_to_outlet', metadata: { outletId, product, stockLotId: lot.id, quantity: allocation.quantity },
+            actorUserId: actor, franchiseId: lockedOutlet.franchiseId, entityType: 'stock_transfer', entityId: row.id,
+            action: lockedOutlet.franchiseId ? 'franchise_lot_to_outlet' : 'company_to_outlet', metadata: { outletId, product, stockLotId: lot.id, quantity: take },
           })
         }
+        if (remaining > EPS) throw new Error(`Insufficient ${lockedOutlet.franchiseId ? 'franchise' : 'company'} stock for ${product}.`)
         return rows
       })
       return Response.json({ rows: result }, { status: 201, headers })
+    }
+
+    // Moves stock between two outlets of the same side (same franchise, or both company) as paired movements.
+    if (action === 'transfer-between-outlets') {
+      if (!allowed(access, 'pos', 'edit')) return Response.json({ error: 'POS edit access is required.' }, { status: 403, headers })
+      const fromId = s(data.fromOutletId, 80), toId = s(data.toOutletId, 80), product = s(data.product, 80), qty = n(data.quantity)
+      const reason = s(data.reason, 300)
+      if (!uuidRe.test(fromId) || !uuidRe.test(toId) || fromId === toId || !products.includes(product) || !(qty > 0)) return Response.json({ error: 'Two different outlets, a product and a positive quantity are required.' }, { status: 400, headers })
+      const result = await db.transaction(async tx => {
+        // Lock both outlets in a fixed order so opposite transfers cannot deadlock.
+        const locked = await tx.select().from(posOutlets).where(inArray(posOutlets.id, [fromId, toId])).orderBy(asc(posOutlets.id)).for('update')
+        const from = locked.find(x => x.id === fromId), to = locked.find(x => x.id === toId)
+        if (!from || !to || from.status !== 'Active' || to.status !== 'Active' || !scope(access, from.franchiseId) || !scope(access, to.franchiseId) ||
+            (from.franchiseId ?? null) !== (to.franchiseId ?? null)) throw new Error('Outlet access changed. Both outlets must be active and belong to the same franchise (or both to the company).')
+        const transferGroupId = crypto.randomUUID()
+        const { allocations } = await debitFifo(tx, {
+          outletId: fromId, product, quantity: qty, movementType: 'TransferOut', referenceType: 'OUTLET_TRANSFER',
+          referenceId: transferGroupId, transferGroupId, reason: reason || null, createdBy: actor,
+        })
+        for (const a of allocations) {
+          await postMovement(tx, {
+            outletId: toId, product, stockLotId: a.lotId, movementType: 'TransferIn', quantity: a.quantity, referenceType: 'OUTLET_TRANSFER',
+            referenceId: transferGroupId, transferGroupId, reason: reason || null, createdBy: actor,
+          })
+        }
+        await tx.insert(auditEvents).values({
+          actorUserId: actor, franchiseId: from.franchiseId, entityType: 'outlet_stock_transfer', entityId: transferGroupId,
+          action: 'transferred', metadata: { fromOutletId: fromId, toOutletId: toId, product, quantity: qty, lots: allocations, reason: reason || null },
+        })
+        return { transferGroupId, allocations }
+      })
+      return Response.json(result, { status: 201, headers })
+    }
+
+    // Wastage, adjustment and stock-count movements on the outlet ledger. A reason is mandatory.
+    if (action === 'record-wastage' || action === 'adjust-stock' || action === 'count-stock') {
+      if (!allowed(access, 'pos', 'edit')) return Response.json({ error: 'POS edit access is required.' }, { status: 403, headers })
+      const outletId = s(data.outletId, 80), product = s(data.product, 80), reason = s(data.reason, 300)
+      const [outlet] = await db.select().from(posOutlets).where(eq(posOutlets.id, outletId))
+      if (!outlet || !scope(access, outlet.franchiseId) || !products.includes(product)) return Response.json({ error: 'Valid outlet and product are required.' }, { status: 400, headers })
+      if (!reason) return Response.json({ error: 'A reason is required for wastage, adjustments and stock counts.' }, { status: 400, headers })
+      const qty = n(data.quantity, Number.NaN)
+      const counted = n(data.countedQuantity, Number.NaN)
+      if (action === 'record-wastage' && !(qty > 0)) return Response.json({ error: 'Wastage quantity must be greater than zero.' }, { status: 400, headers })
+      if (action === 'adjust-stock' && (!Number.isFinite(qty) || Math.abs(qty) < EPS)) return Response.json({ error: 'Adjustment quantity must be a non-zero number (negative removes stock).' }, { status: 400, headers })
+      if (action === 'count-stock' && (!Number.isFinite(counted) || counted < 0)) return Response.json({ error: 'Counted quantity must be zero or more.' }, { status: 400, headers })
+      const lotId = data.stockLotId ? s(data.stockLotId, 80) : null
+      if (lotId && !uuidRe.test(lotId)) return Response.json({ error: 'Invalid stock lot.' }, { status: 400, headers })
+
+      const result = await db.transaction(async tx => {
+        const [lockedOutlet] = await tx.select().from(posOutlets).where(eq(posOutlets.id, outletId)).for('update')
+        if (!lockedOutlet || !scope(access, lockedOutlet.franchiseId) || lockedOutlet.status !== 'Active') throw new Error('Outlet access changed. Refresh and retry.')
+        const movementType = action === 'record-wastage' ? 'Wastage' : action === 'adjust-stock' ? 'Adjustment' : 'Count'
+        const referenceType = action === 'record-wastage' ? 'STOCK_WASTAGE' : action === 'adjust-stock' ? 'STOCK_ADJUSTMENT' : 'STOCK_COUNT'
+        const refId = crypto.randomUUID()
+        const systemQty = await outletBalance(tx, outletId, product)
+        const delta = action === 'record-wastage' ? -qty : action === 'adjust-stock' ? qty : counted - systemQty
+        const base = { outletId, product, movementType, referenceType, referenceId: refId, reason, createdBy: actor }
+        const rows = []
+        if (lotId) {
+          // A specific lot must already sit on this outlet's ledger, or (for a credit) belong to this outlet's side.
+          const bucket = (await lotBuckets(tx, outletId, product)).find(b => b.lotId === lotId)
+          const [lot] = await tx.select().from(stockLots).where(eq(stockLots.id, lotId))
+          const sideOk = !!lot && lot.product === product && (!!bucket || (lockedOutlet.franchiseId ? lot.franchiseId === lockedOutlet.franchiseId : lot.franchiseId == null))
+          if (!sideOk) throw new Error('Stock lot does not belong to this outlet.')
+          if (delta < 0 && (!bucket || bucket.quantity + delta < -EPS)) throw new Error(`Insufficient outlet stock in that lot. Available: ${bucket?.quantity ?? 0}; requested: ${-delta}.`)
+          if (Math.abs(delta) > EPS) rows.push(await postMovement(tx, { ...base, stockLotId: lotId, quantity: delta }))
+        } else if (delta < -EPS) {
+          rows.push(...(await debitFifo(tx, { ...base, quantity: -delta })).rows)
+        } else if (delta > EPS) {
+          rows.push(await postMovement(tx, { ...base, stockLotId: null, quantity: delta }))
+        }
+        if (!rows.length) rows.push(await postMovement(tx, { ...base, stockLotId: null, quantity: 0 }))
+        await tx.insert(auditEvents).values({
+          actorUserId: actor, franchiseId: lockedOutlet.franchiseId, entityType: 'outlet_stock_' + movementType.toLowerCase(), entityId: refId,
+          action: 'recorded', metadata: { outletId, product, delta, systemQuantity: systemQty, countedQuantity: action === 'count-stock' ? counted : null, stockLotId: lotId, reason },
+        })
+        return { referenceId: refId, delta, systemQuantity: systemQty, rows }
+      })
+      return Response.json(result, { status: 201, headers })
     }
 
     if (action === 'return-sale') {
@@ -253,6 +352,9 @@ export default async (req: Request) => {
       const previous = await db.select().from(posReturns).where(eq(posReturns.itemId, itemId))
       const alreadyReturned = previous.reduce((a, r) => a + n(r.quantity), 0)
       if (alreadyReturned + qty > n(item.quantity) + 0.000001) return Response.json({ error: 'Return quantity exceeds the remaining sold quantity.' }, { status: 400, headers })
+      // Returned goods are either put back on sale (Restock, default) or written off (Waste, e.g. spoiled/unsafe).
+      const disposition = data.restock === false || s(data.disposition, 20) === 'Waste' ? 'Waste' : 'Restock'
+      if (disposition === 'Waste' && !s(data.reason, 300)) return Response.json({ error: 'A reason is required when returned goods are written off as waste.' }, { status: 400, headers })
       const refundMethod = s(data.refundMethod, 30) || 'Cash'
       if (!methods.includes(refundMethod)) return Response.json({ error: 'Invalid refund method.' }, { status: 400, headers })
       const refundAmount = Math.max(0, qty * n(item.unitPrice) - (n(item.discount) * qty / Math.max(n(item.quantity), 1)) + (n(item.tax) * qty / Math.max(n(item.quantity), 1)))
@@ -268,14 +370,34 @@ export default async (req: Request) => {
           throw new Error(`Return quantity exceeds the remaining sold quantity. Remaining: ${Math.max(0, n(item.quantity) - lockedReturnedQty)}.`)
         }
         const [ret] = await tx.insert(posReturns).values({
-          saleId, itemId, quantity: String(qty), amount: String(refundAmount), reason: s(data.reason, 300) || null,
+          saleId, itemId, quantity: String(qty), amount: String(refundAmount), reason: s(data.reason, 300) || null, disposition,
         }).returning()
-        const balance = await latestBalance(tx as typeof db, sale.outletId, item.product)
-        await tx.insert(outletStockLedger).values({
-          outletId: sale.outletId, product: item.product, stockLotId: item.stockLotId,
-          movementType: 'Return', quantity: String(qty), referenceType: 'POS_RETURN',
-          referenceId: ret.id, balanceAfter: String(balance + qty), createdBy: actor,
-        })
+        // Put the goods back on the lots they were sold from: sold per lot for this sale/product, less what earlier returns already credited.
+        const soldRows = await tx.select().from(outletStockLedger).where(and(
+          eq(outletStockLedger.outletId, sale.outletId), eq(outletStockLedger.product, item.product),
+          eq(outletStockLedger.referenceType, 'POS_SALE'), eq(outletStockLedger.referenceId, saleId)))
+        const saleReturns = await tx.select({ id: posReturns.id }).from(posReturns).where(eq(posReturns.saleId, saleId))
+        const earlier = saleReturns.length ? await tx.select().from(outletStockLedger).where(and(
+          eq(outletStockLedger.outletId, sale.outletId), eq(outletStockLedger.product, item.product),
+          eq(outletStockLedger.movementType, 'Return'), inArray(outletStockLedger.referenceId, saleReturns.map(r => r.id)))) : []
+        const room = new Map<string | null, number>()
+        for (const r of soldRows) room.set(r.stockLotId, (room.get(r.stockLotId) ?? 0) - n(r.quantity))
+        for (const r of earlier) room.set(r.stockLotId, (room.get(r.stockLotId) ?? 0) - n(r.quantity))
+        let toPlace = qty
+        const place: Array<{ lotId: string | null; quantity: number }> = []
+        for (const [lotId, available] of room) {
+          if (toPlace <= EPS) break
+          if (available <= EPS) continue
+          const take = Math.min(available, toPlace)
+          place.push({ lotId, quantity: take }); toPlace -= take
+        }
+        if (toPlace > EPS) place.push({ lotId: item.stockLotId, quantity: toPlace })
+        for (const part of place) {
+          await postMovement(tx, { outletId: sale.outletId, product: item.product, stockLotId: part.lotId, movementType: 'Return', quantity: part.quantity, referenceType: 'POS_RETURN', referenceId: ret.id, reason: s(data.reason, 300) || null, createdBy: actor })
+          if (disposition === 'Waste') {
+            await postMovement(tx, { outletId: sale.outletId, product: item.product, stockLotId: part.lotId, movementType: 'Wastage', quantity: -part.quantity, referenceType: 'POS_RETURN_WASTE', referenceId: ret.id, reason: s(data.reason, 300), createdBy: actor })
+          }
+        }
         await tx.insert(posPayments).values({ saleId, method: refundMethod, amount: String(-refundAmount), reference: `RETURN:${ret.id}`, status: 'Reversed' })
         const [invoice] = await tx.select().from(invoiceRecords).where(eq(invoiceRecords.posSaleId, saleId)).orderBy(desc(invoiceRecords.createdAt)).limit(1)
         if (invoice) {
@@ -288,7 +410,7 @@ export default async (req: Request) => {
         }
         await tx.insert(auditEvents).values({
           actorUserId: actor, franchiseId: saleOutlet.franchiseId, entityType: 'pos_return', entityId: ret.id,
-          action: 'created', metadata: { saleId, itemId, quantity: qty, refundAmount, refundMethod },
+          action: 'created', metadata: { saleId, itemId, quantity: qty, refundAmount, refundMethod, disposition },
         })
         return { return: ret, refundAmount }
       })
@@ -353,7 +475,7 @@ export default async (req: Request) => {
   } catch (e) {
     console.error(e)
     const message = e instanceof Error ? e.message : 'POS operation failed.'
-    const status = /insufficient .*stock|stock changed|shift is no longer open|already closed|return quantity exceeds|outlet access changed/i.test(message) ? 409 : 500
+    const status = /insufficient .*stock|does not belong|stock changed|shift is no longer open|already closed|return quantity exceeds|outlet access changed/i.test(message) ? 409 : 500
     return Response.json({ error: message }, { status, headers })
   }
 }

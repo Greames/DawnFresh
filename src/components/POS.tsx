@@ -58,7 +58,7 @@ export function POSWorkspace(){
   <section className="panel">
    <div className="panel-heading"><div><h3>Outlet stock & sales trail</h3><p>Every transfer, sale and return stays traceable to the outlet.</p></div></div>
    <div className="table-wrap"><table><thead><tr><th>Product</th><th>Balance</th><th>Latest movement</th><th>Recent bill</th></tr></thead><tbody>
-    {['Chicken','Mutton','Eggs','Fish','Prawns'].map(p=>{const l=data.ledger.filter(x=>x.outletId===outletId&&x.product===p)[0];const s=salesToday.find(x=>x.outletId===outletId);return <tr key={p}><td>{p}</td><td>{l?Number(l.balanceAfter):0}</td><td>{l?.movementType||'—'}</td><td>{s?.billNumber||'—'}</td></tr>})}
+    {['Chicken','Mutton','Eggs','Fish','Prawns'].map(p=>{const l=data.ledger.filter(x=>x.outletId===outletId&&x.product===p)[0];const bal=Math.round((stock[p]||0)*1000)/1000;const s=salesToday.find(x=>x.outletId===outletId);return <tr key={p}><td>{p}</td><td>{bal}</td><td>{l?.movementType||'—'}</td><td>{s?.billNumber||'—'}</td></tr>})}
    </tbody></table></div>
   </section>
   <section className="panel">
