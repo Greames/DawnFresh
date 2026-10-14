@@ -18,7 +18,7 @@ const statuses: Record<string, string[]> = {
   sourcing: ['Planned', 'Ordered', 'Received'],
   inventory: ['Available', 'Low stock', 'On hold'],
   outlets: ['Active', 'Inactive'],
-  supply: ['Requested', 'Confirmed', 'Dispatched', 'Delivered', 'Cancelled'],
+  supply: ['Requested', 'Confirmed', 'Dispatched', 'Partially Delivered', 'Delivered', 'Cancelled'],
 }
 
 function validate(kind: string, data: Record<string, unknown>) {

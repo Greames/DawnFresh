@@ -150,7 +150,7 @@ export const statusOptions: Record<Kind, string[]> = {
   sourcing: ['Planned', 'Ordered', 'Received'],
   inventory: ['Available', 'Low stock', 'On hold'],
   outlets: ['Active', 'Inactive'],
-  supply: ['Requested', 'Confirmed', 'Dispatched', 'Delivered', 'Cancelled'],
+  supply: ['Requested', 'Confirmed', 'Dispatched', 'Partially Delivered', 'Delivered', 'Cancelled'],
 }
 export const franchiseKinds: Kind[] = ['orders', 'leads', 'supply', 'processing', 'inventory', 'outlets', 'deliveries', 'invoices', 'payments', 'settlements', 'stock_movements']
 export function dateOffset(days: number) {

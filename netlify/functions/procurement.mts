@@ -1,9 +1,11 @@
 import type { Config } from '@netlify/functions'
-import { and, asc, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { auditEvents, franchises, records, stockLots } from '../../db/schema.js'
-import { franchiseStockLedger, goodsReceipts, purchaseOrders, supplierInvoices, supplierPayments, suppliers } from '../../db/procurement-schema.js'
+import { goodsReceipts, purchaseOrders, supplierInvoices, supplierPayments, suppliers } from '../../db/procurement-schema.js'
+import { outletStockLedger, posOutlets } from '../../db/pos-schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
+import { outletBalance, postMovement } from '../../db/outlet-stock.js'
 
 const products = ['Chicken','Mutton','Eggs','Fish','Prawns']
 const num=(v:unknown,d=0)=>{const n=Number(v);return Number.isFinite(n)?n:d}
@@ -22,10 +24,12 @@ export default async (req:Request)=>{
     db.select().from(goodsReceipts).orderBy(desc(goodsReceipts.receivedAt)),
     db.select().from(supplierInvoices).orderBy(desc(supplierInvoices.issuedAt)),
     db.select().from(supplierPayments).orderBy(desc(supplierPayments.paidAt)),
-    db.select().from(franchiseStockLedger).orderBy(desc(franchiseStockLedger.createdAt)),
+    // Derived view: franchise stock is its outlets' ledger rows (franchise_stock_ledger is retired, inflow-only legacy).
+    db.select({ledger:outletStockLedger,franchiseId:posOutlets.franchiseId}).from(outletStockLedger).innerJoin(posOutlets,eq(posOutlets.id,outletStockLedger.outletId)).where(isNotNull(posOutlets.franchiseId)).orderBy(desc(outletStockLedger.createdAt)),
    ])
-   if(access.role==='franchisee') return Response.json({suppliers:[],purchaseOrders:[],goodsReceipts:[],supplierInvoices:[],supplierPayments:[],franchiseStock:stockRows.filter(row=>row.franchiseId===access.franchise?.id)},{headers})
-   return Response.json({suppliers:supplierRows,purchaseOrders:poRows,goodsReceipts:receiptRows, supplierInvoices:invoiceRows,supplierPayments:paymentRows,franchiseStock:stockRows},{headers})
+   const franchiseStockRows=stockRows.map(r=>({...r.ledger,franchiseId:r.franchiseId}))
+   if(access.role==='franchisee') return Response.json({suppliers:[],purchaseOrders:[],goodsReceipts:[],supplierInvoices:[],supplierPayments:[],franchiseStock:franchiseStockRows.filter(row=>row.franchiseId===access.franchise?.id)},{headers})
+   return Response.json({suppliers:supplierRows,purchaseOrders:poRows,goodsReceipts:receiptRows, supplierInvoices:invoiceRows,supplierPayments:paymentRows,franchiseStock:franchiseStockRows},{headers})
   }
   if(!sameOrigin(req)||!['POST','PATCH'].includes(req.method))return new Response('Forbidden',{status:403,headers})
   const body=await req.json();const action=txt(body?.action,80);const data=body?.data&&typeof body.data==='object'?body.data:{}
@@ -119,44 +123,50 @@ export default async (req:Request)=>{
    if(access.role==='franchisee'||!allowed(access,'supply','edit'))return Response.json({error:'Only authorized company staff can transfer company stock to a franchise.'},{status:403,headers})
    const franchiseId=txt(data.franchiseId,80),product=txt(data.product,80),quantity=num(data.quantity),supplyRequestId=txt(data.supplyRequestId,80),purchaseOrderId=txt(data.purchaseOrderId,80),goodsReceiptId=txt(data.goodsReceiptId,80)
    const [franchise]=await db.select().from(franchises).where(eq(franchises.id,franchiseId))
-   if(!franchise||!products.includes(product)||quantity<=0||!supplyRequestId||!purchaseOrderId||!goodsReceiptId)return Response.json({error:'Franchise, product, quantity, Supply Request ID, Purchase Order ID and GRN ID are required.'},{status:400,headers})
+   if(!franchise||!products.includes(product)||!(quantity>0)||!supplyRequestId||!purchaseOrderId||!goodsReceiptId)return Response.json({error:'Franchise, product, quantity, Supply Request ID, Purchase Order ID and GRN ID are required.'},{status:400,headers})
    const [request]=await db.select().from(records).where(eq(records.id,supplyRequestId))
    const [po]=await db.select().from(purchaseOrders).where(eq(purchaseOrders.id,purchaseOrderId))
    const [grn]=await db.select().from(goodsReceipts).where(eq(goodsReceipts.id,goodsReceiptId))
    if(!request||request.kind!=='supply'||request.franchiseId!==franchiseId)return Response.json({error:'Supply request does not belong to this franchise.'},{status:400,headers})
+   if(request.data.product!==product)return Response.json({error:'The supplied product must match the Supply Request product.'},{status:400,headers})
    if(!po||po.supplyRequestId!==supplyRequestId)return Response.json({error:'Purchase Order is not linked to this Supply Request.'},{status:400,headers})
-   if(!po||po.product!==product)return Response.json({error:'The supplied product must match the Purchase Order product.'},{status:400,headers})
+   if(po.product!==product)return Response.json({error:'The supplied product must match the Purchase Order product.'},{status:400,headers})
    if(!grn||grn.purchaseOrderId!==purchaseOrderId||grn.qcStatus!=='Passed'||!grn.stockLotId)return Response.json({error:'A passed GRN with a finished-stock lot linked to this Purchase Order is required.'},{status:400,headers})
-   if(request.data.status!=='Confirmed'&&request.data.status!=='Dispatched')return Response.json({error:'Supply Request must be Confirmed or Dispatched before franchise receipt.'},{status:400,headers})
+   // Destination outlet: the franchise's only active outlet by default, otherwise it must be named.
+   const outlets=await db.select().from(posOutlets).where(and(eq(posOutlets.franchiseId,franchiseId),eq(posOutlets.status,'Active')))
+   const requestedOutletId=txt(data.outletId,80)
+   if(!outlets.length)return Response.json({error:'This franchise has no active outlet to receive stock. Create a POS outlet for the franchise first.'},{status:400,headers})
+   if(!requestedOutletId&&outlets.length>1)return Response.json({error:'This franchise has several outlets; choose the destination outlet (outletId).'},{status:400,headers})
+   const outletId=requestedOutletId||outlets[0].id
+   if(!outlets.some(o=>o.id===outletId))return Response.json({error:'Destination outlet must be an active outlet of this franchise.'},{status:400,headers})
+   const unit=request.data.unit||'kg'
    const result=await db.transaction(async tx=>{
+    // Lock order: supply request, destination outlet, then the GRN lot.
     const [lockedRequest]=await tx.select().from(records).where(eq(records.id,supplyRequestId)).for('update')
-    if(!lockedRequest||lockedRequest.kind!=='supply'||lockedRequest.franchiseId!==franchiseId||
-       (lockedRequest.data.status!=='Confirmed'&&lockedRequest.data.status!=='Dispatched'))return null
-    let remaining=quantity
+    if(!lockedRequest||lockedRequest.kind!=='supply'||lockedRequest.franchiseId!==franchiseId||!['Confirmed','Dispatched','Partially Delivered'].includes(String(lockedRequest.data.status)))return {error:'Supply request is not open for delivery (it must be Confirmed, Dispatched or Partially Delivered).'}
+    const [lockedOutlet]=await tx.select().from(posOutlets).where(eq(posOutlets.id,outletId)).for('update')
+    if(!lockedOutlet||lockedOutlet.franchiseId!==franchiseId||lockedOutlet.status!=='Active')return {error:'Destination outlet is no longer available.'}
+    // Cap to the accepted quantity (falls back to the requested quantity) less what was already delivered.
+    const approved=num(lockedRequest.data.acceptedQuantity,num(lockedRequest.data.quantity))
+    const delivered=num(lockedRequest.data.deliveredQuantity)
+    const outstanding=approved-delivered
+    if(quantity>outstanding+0.000001)return {error:`Transfer exceeds the approved supply quantity. Approved: ${approved}; already delivered: ${delivered}; outstanding: ${Math.max(0,outstanding)}.`}
     const lots=await tx.select().from(stockLots).where(and(eq(stockLots.id,grn.stockLotId!),eq(stockLots.product,product),eq(stockLots.stage,'Finished stock'),eq(stockLots.status,'Available'),isNull(stockLots.franchiseId))).for('update')
-    const allocations:{id:string;qty:number}[]=[]
-    for(const lot of lots){const available=Math.max(0,num(lot.quantity));if(available<=0)continue;const take=Math.min(available,remaining);allocations.push({id:lot.id,qty:take});remaining-=take;if(remaining<=0.000001)break}
-    if(remaining>0.000001)throw new Error(`Insufficient company stock for ${product}.`)
-    let lastBalance=0
-    const [last]=await tx.select().from(franchiseStockLedger).where(and(eq(franchiseStockLedger.franchiseId,franchiseId),eq(franchiseStockLedger.product,product))).orderBy(desc(franchiseStockLedger.createdAt)).limit(1)
-    lastBalance=num(last?.balanceAfter)
-    const rows=[]
-    for(const a of allocations){
-     const [lot]=await tx.select().from(stockLots).where(eq(stockLots.id,a.id))
-     if(!lot||num(lot.quantity)<a.qty)throw new Error('Stock changed while supplying the franchise. Please retry.')
-     const newQty=num(lot.quantity)-a.qty
-     await tx.update(stockLots).set({quantity:String(newQty),status:newQty>0?'Available':'Depleted',updatedAt:new Date()}).where(eq(stockLots.id,lot.id))
-     lastBalance+=a.qty
-     const [row]=await tx.insert(franchiseStockLedger).values({franchiseId,product,stockLotId:lot.id,movementType:'SupplyIn',quantity:String(a.qty),referenceType:'FRANCHISE_SUPPLY',referenceId:supplyRequestId,supplyRequestId,purchaseOrderId,goodsReceiptId,balanceAfter:String(lastBalance),createdBy:actor}).returning()
-     rows.push(row)
-    }
-    await tx.update(records).set({data:{...lockedRequest.data,status:'Delivered',deliveredQuantity:quantity,purchaseOrderId,goodsReceiptId,receivedAt:new Date().toISOString()}}).where(eq(records.id,supplyRequestId))
-    await tx.insert(records).values({kind:'stock_movements',franchiseId,data:{name:`${product} received from company`,status:'Posted',date:new Date().toISOString().slice(0,10),product,quantity,unit:request.data.unit||'kg',reference:supplyRequestId,fromStage:'Finished stock',toStage:'Franchise stock',movementType:'SupplyIn',supplyRequestId,purchaseOrderId,goodsReceiptId}})
-    await tx.insert(auditEvents).values({actorUserId:actor,franchiseId,entityType:'franchise_stock_supply',action:'received',metadata:{product,quantity,franchiseId,rows:rows.length,supplyRequestId,purchaseOrderId,goodsReceiptId}})
-    return rows
+    const lot=lots[0]
+    if(!lot||num(lot.quantity)+0.000001<quantity)throw new Error(`Insufficient company stock for ${product} in the GRN lot.`)
+    const newQty=Math.max(0,num(lot.quantity)-quantity)
+    await tx.update(stockLots).set({quantity:String(newQty),status:newQty>0?'Available':'Depleted',updatedAt:new Date()}).where(eq(stockLots.id,lot.id))
+    // Credit the receiving outlet ledger: this is the franchise's sellable stock.
+    const row=await postMovement(tx,{outletId,product,stockLotId:lot.id,movementType:'SupplyIn',quantity,referenceType:'FRANCHISE_SUPPLY',referenceId:supplyRequestId,supplyRequestId,purchaseOrderId,goodsReceiptId,createdBy:actor})
+    const totalDelivered=delivered+quantity
+    const full=totalDelivered+0.000001>=approved
+    await tx.update(records).set({data:{...lockedRequest.data,status:full?'Delivered':'Partially Delivered',deliveredQuantity:totalDelivered,purchaseOrderId,goodsReceiptId,destinationOutletId:outletId,receivedAt:new Date().toISOString()}}).where(eq(records.id,supplyRequestId))
+    await tx.insert(records).values({kind:'stock_movements',franchiseId,data:{name:`${product} received from company`,status:'Posted',date:new Date().toISOString().slice(0,10),product,quantity,unit,reference:supplyRequestId,fromStage:'Finished stock',toStage:'Franchise outlet stock',movementType:'SupplyIn',supplyRequestId,purchaseOrderId,goodsReceiptId,outletId}})
+    await tx.insert(auditEvents).values({actorUserId:actor,franchiseId,entityType:'franchise_stock_supply',action:'received',metadata:{product,quantity,franchiseId,outletId,ledgerRowId:row.id,stockLotId:lot.id,supplyRequestId,purchaseOrderId,goodsReceiptId,approved,totalDelivered,fullyDelivered:full,outletBalance:await outletBalance(tx,outletId,product)}})
+    return {rows:[{...row,franchiseId}]}
    })
-   if(!result)return Response.json({error:'Supply request was already delivered or is no longer eligible for transfer.'},{status:409,headers})
-   return Response.json({rows:result},{status:201,headers})
+   if('error' in result)return Response.json({error:result.error},{status:409,headers})
+   return Response.json(result,{status:201,headers})
   }
 
   return Response.json({error:'Unknown procurement action.'},{status:400,headers})
