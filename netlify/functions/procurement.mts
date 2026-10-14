@@ -1,5 +1,5 @@
 import type { Config } from '@netlify/functions'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { auditEvents, franchises, records, stockLots } from '../../db/schema.js'
 import { franchiseStockLedger, goodsReceipts, purchaseOrders, supplierInvoices, supplierPayments, suppliers } from '../../db/procurement-schema.js'
@@ -30,6 +30,8 @@ export default async (req:Request)=>{
   if(!sameOrigin(req)||!['POST','PATCH'].includes(req.method))return new Response('Forbidden',{status:403,headers})
   const body=await req.json();const action=txt(body?.action,80);const data=body?.data&&typeof body.data==='object'?body.data:{}
   const actor=access.account.id
+  // Supplier, purchase-order, receipt and supplier-payment actions are company-only, whatever the module permissions say.
+  if(['create-supplier','create-po','receive-po','create-supplier-invoice','pay-supplier'].includes(action)&&access.role==='franchisee')return Response.json({error:'Procurement actions are limited to company users.'},{status:403,headers})
 
   if(action==='create-supplier'){
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})
@@ -131,7 +133,7 @@ export default async (req:Request)=>{
     if(!lockedRequest||lockedRequest.kind!=='supply'||lockedRequest.franchiseId!==franchiseId||
        (lockedRequest.data.status!=='Confirmed'&&lockedRequest.data.status!=='Dispatched'))return null
     let remaining=quantity
-    const lots=await tx.select().from(stockLots).where(and(eq(stockLots.id,grn.stockLotId!),eq(stockLots.product,product),eq(stockLots.stage,'Finished stock'),eq(stockLots.status,'Available'))).for('update')
+    const lots=await tx.select().from(stockLots).where(and(eq(stockLots.id,grn.stockLotId!),eq(stockLots.product,product),eq(stockLots.stage,'Finished stock'),eq(stockLots.status,'Available'),isNull(stockLots.franchiseId))).for('update')
     const allocations:{id:string;qty:number}[]=[]
     for(const lot of lots){const available=Math.max(0,num(lot.quantity));if(available<=0)continue;const take=Math.min(available,remaining);allocations.push({id:lot.id,qty:take});remaining-=take;if(remaining<=0.000001)break}
     if(remaining>0.000001)throw new Error(`Insufficient company stock for ${product}.`)

@@ -204,6 +204,8 @@ export const stockLots = pgTable('stock_lots', {
   stage: text().notNull().default('Finished stock'),
   sourceBatchId: uuid('source_batch_id').references(() => processingBatches.id),
   outletId: uuid('outlet_id').references(() => records.id),
+  // Owner of the lot: null = company stock, otherwise the franchise that processed it.
+  franchiseId: uuid('franchise_id').references(() => franchises.id),
   batchCode: text('batch_code').notNull(),
   expiryAt: timestamp('expiry_at', { withTimezone: true }),
   status: text().notNull().default('Available'),
@@ -213,6 +215,7 @@ export const stockLots = pgTable('stock_lots', {
   index('stock_lots_product_stage_idx').on(table.product, table.stage),
   index('stock_lots_batch_code_idx').on(table.batchCode),
   index('stock_lots_expiry_idx').on(table.expiryAt),
+  index('stock_lots_franchise_idx').on(table.franchiseId),
 ])
 
 export const packages = pgTable('packages', {

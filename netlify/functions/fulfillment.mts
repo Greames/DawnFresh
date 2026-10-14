@@ -55,7 +55,7 @@ export default async (req: Request) => {
         return Response.json({
           production: visibleProduction,
           batches: visibleBatches,
-          lots: lots.filter(row => !!row.sourceBatchId && batchIds.has(row.sourceBatchId)),
+          lots: lots.filter(row => row.franchiseId === access.franchise!.id || (!row.franchiseId && !!row.sourceBatchId && batchIds.has(row.sourceBatchId))),
           packages: packageRows.filter(row => orderIds.has(row.orderId)),
           routes: visibleRoutes,
           stops: stops.filter(row => routeIds.has(row.routeId) && orderIds.has(row.orderId)),
@@ -100,7 +100,7 @@ export default async (req: Request) => {
         const [batch] = await tx.insert(processingBatches).values({ productionOrderId, product: production.product, inputQuantity: String(input), outputQuantity: String(output), wasteQuantity: String(waste), unit: production.unit, status: qcStatus === 'Passed' ? 'Completed' : 'Quality Check', qcStatus, qcRemarks: text(data.qcRemarks) || null, processedAt: qcStatus === 'Passed' ? new Date() : undefined }).returning()
         if (batch.qcStatus !== 'Pending') await tx.insert(qcChecks).values({ processingBatchId: batch.id, status: batch.qcStatus, temperature: data.temperature === undefined ? null : String(num(data.temperature)), remarks: text(data.qcRemarks) || null, checkedBy: actor })
         if (batch.qcStatus === 'Passed') {
-          await tx.insert(stockLots).values({ product: batch.product, quantity: String(output), unit: batch.unit, sourceBatchId: batch.id, batchCode: text(data.batchCode, 100) || `FR-${Date.now()}`, status: 'Available' })
+          await tx.insert(stockLots).values({ product: batch.product, quantity: String(output), unit: batch.unit, sourceBatchId: batch.id, franchiseId: production.franchiseId, batchCode: text(data.batchCode, 100) || `FR-${Date.now()}`, status: 'Available' })
           await tx.update(productionOrders).set({ status: 'Completed', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
         } else {
           await tx.update(productionOrders).set({ status: qcStatus === 'Failed' ? 'Rejected' : 'Quality Check', updatedAt: new Date() }).where(eq(productionOrders.id, productionOrderId))
