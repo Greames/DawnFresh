@@ -1,7 +1,7 @@
 import type { Config } from '@netlify/functions'
 import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { auditEvents, invoiceRecords, paymentRecords, stockLots } from '../../db/schema.js'
+import { auditEvents, customers, invoiceRecords, paymentRecords, stockLots } from '../../db/schema.js'
 import { outletStockLedger, posOutlets, posPayments, posReconciliations, posReturns, posSaleItems, posSales, posShifts } from '../../db/pos-schema.js'
 import { allowed, resolveAccess, sameOrigin } from '../../db/access.js'
 
@@ -24,7 +24,7 @@ export default async (req: Request) => {
   try {
     const access = await resolveAccess(req)
     if ('error' in access) return Response.json({ error: access.error }, { status: access.status, headers })
-    if (!allowed(access, 'outlets', 'view')) return Response.json({ error: 'Outlet access is required.' }, { status: 403, headers })
+    if (!allowed(access, 'pos', 'view')) return Response.json({ error: 'POS access is required.' }, { status: 403, headers })
 
     if (req.method === 'GET') {
       const [outlets, shifts, sales, payments, ledger, recs] = await Promise.all([
@@ -53,7 +53,7 @@ export default async (req: Request) => {
     const actor = access.account.id
 
     if (action === 'create-outlet') {
-      if (!allowed(access, 'outlets', 'edit')) return Response.json({ error: 'Outlet edit access is required.' }, { status: 403, headers })
+      if (!allowed(access, 'pos', 'edit')) return Response.json({ error: 'POS edit access is required.' }, { status: 403, headers })
       const franchiseId = data.franchiseId ? s(data.franchiseId, 80) : null
       if (!scope(access, franchiseId) || !s(data.code, 50) || !s(data.name, 150)) return Response.json({ error: 'Outlet code and name are required.' }, { status: 400, headers })
       const [row] = await db.insert(posOutlets).values({
@@ -65,7 +65,7 @@ export default async (req: Request) => {
     }
 
     if (action === 'open-shift') {
-      if (!allowed(access, 'outlets', 'edit')) return Response.json({ error: 'Outlet edit access is required.' }, { status: 403, headers })
+      if (!allowed(access, 'pos', 'edit')) return Response.json({ error: 'POS edit access is required.' }, { status: 403, headers })
       const outletId = s(data.outletId, 80)
       const [outlet] = await db.select().from(posOutlets).where(eq(posOutlets.id, outletId))
       if (!outlet || !scope(access, outlet.franchiseId) || outlet.status !== 'Active') return Response.json({ error: 'Active outlet not found.' }, { status: 404, headers })
@@ -76,7 +76,7 @@ export default async (req: Request) => {
     }
 
     if (action === 'record-sale') {
-      if (!allowed(access, 'outlets', 'edit')) return Response.json({ error: 'Outlet edit access is required.' }, { status: 403, headers })
+      if (!allowed(access, 'pos', 'edit')) return Response.json({ error: 'POS edit access is required.' }, { status: 403, headers })
       const outletId = s(data.outletId, 80), shiftId = s(data.shiftId, 80)
       const items = Array.isArray(data.items) ? data.items : []
       const idempotencyKey = s(data.idempotencyKey, 120) || null
@@ -91,6 +91,11 @@ export default async (req: Request) => {
         }
       }
       if (!items.length) return Response.json({ error: 'At least one sale item is required.' }, { status: 400, headers })
+      const customerId = data.customerId ? s(data.customerId, 80) : null
+      if (customerId) {
+        const [customer] = await db.select({ franchiseId: customers.franchiseId }).from(customers).where(eq(customers.id, customerId))
+        if (!customer || (customer.franchiseId ?? null) !== (outlet.franchiseId ?? null)) return Response.json({ error: 'Customer not found for this outlet.' }, { status: 400, headers })
+      }
 
       const requestedByProduct = new Map<string, number>()
       for (const item of items) {
@@ -134,7 +139,7 @@ export default async (req: Request) => {
         const bill = s(data.billNumber, 80) || `POS-${Date.now()}`
         const [sale] = await tx.insert(posSales).values({
           outletId, shiftId, billNumber: bill, idempotencyKey,
-          customerId: data.customerId ? s(data.customerId, 80) : null, cashierId: actor,
+          customerId, cashierId: actor,
           subtotal: String(subtotal), discount: String(discount), tax: String(tax), total: String(total), status: 'Completed',
         }).returning()
 
@@ -187,7 +192,7 @@ export default async (req: Request) => {
     }
 
     if (action === 'transfer-stock') {
-      if (!allowed(access, 'outlets', 'edit')) return Response.json({ error: 'Outlet edit access is required.' }, { status: 403, headers })
+      if (!allowed(access, 'pos', 'edit')) return Response.json({ error: 'POS edit access is required.' }, { status: 403, headers })
       const outletId = s(data.outletId, 80), product = s(data.product, 80), qty = n(data.quantity)
       const [outlet] = await db.select().from(posOutlets).where(eq(posOutlets.id, outletId))
       if (!outlet || !scope(access, outlet.franchiseId) || !products.includes(product) || qty <= 0) return Response.json({ error: 'Valid outlet, product and quantity are required.' }, { status: 400, headers })
@@ -197,8 +202,10 @@ export default async (req: Request) => {
         const [lockedOutlet] = await tx.select().from(posOutlets).where(eq(posOutlets.id, outletId)).for('update')
         if (!lockedOutlet || !scope(access, lockedOutlet.franchiseId)) throw new Error('Outlet access changed. Refresh and retry.')
         let remaining = qty
+        // Only stock owned by the outlet's own side (company, or the same franchise) may be allocated.
+        const owner = lockedOutlet.franchiseId ? eq(stockLots.franchiseId, lockedOutlet.franchiseId) : isNull(stockLots.franchiseId)
         const lots = await tx.select().from(stockLots)
-          .where(and(eq(stockLots.product, product), eq(stockLots.stage, 'Finished stock'), eq(stockLots.status, 'Available')))
+          .where(and(owner, eq(stockLots.product, product), eq(stockLots.stage, 'Finished stock'), eq(stockLots.status, 'Available')))
           .orderBy(asc(stockLots.createdAt)).for('update')
 
         const allocations: Array<{ lotId: string; quantity: number }> = []
@@ -236,7 +243,7 @@ export default async (req: Request) => {
     }
 
     if (action === 'return-sale') {
-      if (!allowed(access, 'outlets', 'edit')) return Response.json({ error: 'Outlet edit access is required.' }, { status: 403, headers })
+      if (!allowed(access, 'pos', 'edit')) return Response.json({ error: 'POS edit access is required.' }, { status: 403, headers })
       const saleId = s(data.saleId, 80), itemId = s(data.itemId, 80), qty = n(data.quantity)
       const [sale] = await db.select().from(posSales).where(eq(posSales.id, saleId))
       const [item] = await db.select().from(posSaleItems).where(eq(posSaleItems.id, itemId))
@@ -289,7 +296,7 @@ export default async (req: Request) => {
     }
 
     if (action === 'close-shift') {
-      if (!allowed(access, 'outlets', 'edit')) return Response.json({ error: 'Outlet edit access is required.' }, { status: 403, headers })
+      if (!allowed(access, 'pos', 'edit')) return Response.json({ error: 'POS edit access is required.' }, { status: 403, headers })
       const shiftId = s(data.shiftId, 80)
       const [shift] = await db.select().from(posShifts).where(eq(posShifts.id, shiftId))
       if (!shift || shift.status !== 'Open') return Response.json({ error: 'Open shift not found.' }, { status: 404, headers })
