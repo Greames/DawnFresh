@@ -1,5 +1,5 @@
 import type { Config } from '@netlify/functions'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { auditEvents, invoiceRecords, paymentRecords, stockLots } from '../../db/schema.js'
 import { outletStockLedger, posOutlets, posPayments, posReconciliations, posReturns, posSaleItems, posSales, posShifts } from '../../db/pos-schema.js'
@@ -50,7 +50,7 @@ export default async (req: Request) => {
     const body = await req.json()
     const action = s(body?.action, 80)
     const data = body?.data && typeof body.data === 'object' ? body.data : {}
-    const actor = access.id
+    const actor = access.account.id
 
     if (action === 'create-outlet') {
       if (!allowed(access, 'outlets', 'edit')) return Response.json({ error: 'Outlet edit access is required.' }, { status: 403, headers })
@@ -295,28 +295,32 @@ export default async (req: Request) => {
       if (!shift || shift.status !== 'Open') return Response.json({ error: 'Open shift not found.' }, { status: 404, headers })
       const [outlet] = await db.select().from(posOutlets).where(eq(posOutlets.id, shift.outletId))
       if (!outlet || !scope(access, outlet.franchiseId)) return Response.json({ error: 'Outlet access denied.' }, { status: 403, headers })
-      const rows = await db.select().from(posPayments).innerJoin(posSales, eq(posPayments.saleId, posSales.id)).where(eq(posSales.shiftId, shiftId))
-      const cash = rows.filter(r => r.posPayments.method === 'Cash').reduce((a, r) => a + n(r.posPayments.amount), 0)
-      const upi = rows.filter(r => r.posPayments.method === 'UPI').reduce((a, r) => a + n(r.posPayments.amount), 0)
-      const card = rows.filter(r => r.posPayments.method === 'Card').reduce((a, r) => a + n(r.posPayments.amount), 0)
-      const credit = rows.filter(r => r.posPayments.method === 'Credit').reduce((a, r) => a + n(r.posPayments.amount), 0)
-      const sales = await db.select().from(posSales).where(eq(posSales.shiftId, shiftId))
-      const grossSales = sales.reduce((a, r) => a + n(r.subtotal) + n(r.tax), 0)
-      const discounts = sales.reduce((a, r) => a + n(r.discount), 0)
-      const tax = sales.reduce((a, r) => a + n(r.tax), 0)
-      const returns = (await db.select().from(posReturns).where(eq(posReturns.saleId, sales[0]?.id || '00000000-0000-0000-0000-000000000000'))).reduce((a, r) => a + n(r.amount), 0)
-      const allReturnRows = sales.length ? (await Promise.all(sales.map(x => db.select().from(posReturns).where(eq(posReturns.saleId, x.id)))).flat()) : []
-      const returnTotal = allReturnRows.reduce((a, r) => a + n(r.amount), 0)
-      const netSales = sales.reduce((a, r) => a + n(r.total), 0) - returnTotal
-      const counted = n(data.countedCash)
-      const expected = n(shift.openingCash) + cash
-      const variance = counted - expected
       const rec = await db.transaction(async tx => {
         const [lockedOutlet] = await tx.select().from(posOutlets).where(eq(posOutlets.id, shift.outletId)).for('update')
         const [lockedShift] = await tx.select().from(posShifts).where(eq(posShifts.id, shiftId)).for('update')
         if (!lockedOutlet || !scope(access, lockedOutlet.franchiseId) || !lockedShift || lockedShift.status !== 'Open') {
           throw new Error('Shift is already closed or outlet access changed. Refresh POS.')
         }
+        // Totals are computed after the outlet/shift locks so no sale or return can slip in between.
+        const sales = await tx.select().from(posSales).where(eq(posSales.shiftId, shiftId))
+        const saleIds = sales.map(x => x.id)
+        const payments = saleIds.length
+          ? await tx.select({ method: posPayments.method, amount: posPayments.amount, status: posPayments.status }).from(posPayments).where(inArray(posPayments.saleId, saleIds))
+          : []
+        const returnRows = saleIds.length ? await tx.select({ amount: posReturns.amount }).from(posReturns).where(inArray(posReturns.saleId, saleIds)) : []
+        // Sale payments are positive 'Received' rows; refunds are negative 'Reversed' rows (see return-sale).
+        const collected = (method: string) => payments.filter(p => p.method === method && p.status !== 'Reversed').reduce((a, p) => a + n(p.amount), 0)
+        const refunded = (method: string) => payments.filter(p => p.method === method && p.status === 'Reversed').reduce((a, p) => a + Math.abs(n(p.amount)), 0)
+        const cash = collected('Cash'), upi = collected('UPI'), card = collected('Card'), credit = collected('Credit')
+        const grossSales = sales.reduce((a, r) => a + n(r.subtotal) + n(r.tax), 0)
+        const discounts = sales.reduce((a, r) => a + n(r.discount), 0)
+        const tax = sales.reduce((a, r) => a + n(r.tax), 0)
+        const returnTotal = returnRows.reduce((a, r) => a + n(r.amount), 0)
+        const netSales = sales.reduce((a, r) => a + n(r.total), 0) - returnTotal
+        const counted = n(data.countedCash)
+        // Cash in the drawer = opening float + cash taken - cash handed back for returns.
+        const expected = n(shift.openingCash) + cash - refunded('Cash')
+        const variance = counted - expected
         await tx.update(posShifts).set({
           status: 'Closed', closedAt: new Date(), expectedCash: String(expected),
           countedCash: String(counted), cashVariance: String(variance),
@@ -331,7 +335,7 @@ export default async (req: Request) => {
         }).returning()
         await tx.insert(auditEvents).values({
           actorUserId: actor, franchiseId: outlet.franchiseId, entityType: 'pos_shift',
-          entityId: shiftId, action: 'closed', metadata: { expectedCash: expected, countedCash: counted, variance, netSales },
+          entityId: shiftId, action: 'closed', metadata: { expectedCash: expected, countedCash: counted, variance, netSales, returns: returnTotal },
         })
         return row
       })

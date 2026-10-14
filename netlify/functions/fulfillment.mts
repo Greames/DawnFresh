@@ -71,7 +71,7 @@ export default async (req: Request) => {
     const body = await req.json()
     const action = text(body?.action, 80)
     const data = body?.data && typeof body.data === 'object' ? body.data : {}
-    const actor = access.id
+    const actor = access.account.id
 
     if (action === 'create-production') {
       if (!allowed(access, 'processing', 'edit')) return Response.json({ error: 'Processing edit access is required.' }, { status: 403, headers })

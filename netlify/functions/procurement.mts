@@ -29,7 +29,7 @@ export default async (req:Request)=>{
   }
   if(!sameOrigin(req)||!['POST','PATCH'].includes(req.method))return new Response('Forbidden',{status:403,headers})
   const body=await req.json();const action=txt(body?.action,80);const data=body?.data&&typeof body.data==='object'?body.data:{}
-  const actor=access.id
+  const actor=access.account.id
 
   if(action==='create-supplier'){
    if(!allowed(access,'sourcing','edit'))return Response.json({error:'Sourcing edit access is required.'},{status:403,headers})

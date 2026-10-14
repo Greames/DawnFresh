@@ -205,7 +205,7 @@ export default async (req: Request) => {
       data.customerId = normalizedCustomerId
       ;[saved] = await db.update(records).set({ data }).where(eq(records.id, saved.id)).returning()
       await db.insert(auditEvents).values({
-        actorUserId: access.id,
+        actorUserId: access.account.id,
         franchiseId,
         entityType: 'customer',
         entityId: normalizedCustomerId,
@@ -268,7 +268,7 @@ export default async (req: Request) => {
         lineTotal: data.amount !== undefined ? String(data.amount) : undefined,
       })
       await db.insert(auditEvents).values({
-        actorUserId: access.id,
+        actorUserId: access.account.id,
         franchiseId,
         entityType: 'order',
         entityId: normalizedOrder.id,
