@@ -12,11 +12,11 @@ const s = (v: unknown, m = 500) => typeof v === 'string' ? v.trim().slice(0, m) 
 const scope = (access: Awaited<ReturnType<typeof resolveAccess>>, franchiseId?: string | null) =>
   access.role !== 'franchisee' || (!!franchiseId && access.franchise?.id === franchiseId)
 
+// Movement quantities are the source of truth; balanceAfter can be ambiguous when timestamps tie.
 const latestBalance = async (tx: any, outletId: string, product: string) => {
-  const [last] = await tx.select().from(outletStockLedger)
+  const rows = await tx.select({ quantity: outletStockLedger.quantity }).from(outletStockLedger)
     .where(and(eq(outletStockLedger.outletId, outletId), eq(outletStockLedger.product, product)))
-    .orderBy(desc(outletStockLedger.createdAt)).limit(1)
-  return n(last?.balanceAfter)
+  return rows.reduce((total: number, row: { quantity: unknown }) => total + n(row.quantity), 0)
 }
 
 export default async (req: Request) => {
@@ -117,9 +117,18 @@ export default async (req: Request) => {
       }
 
       const result = await db.transaction(async tx => {
+        // Serialize stock-affecting writes for this outlet. Displayed browser stock is advisory only.
+        const [lockedOutlet] = await tx.select().from(posOutlets).where(eq(posOutlets.id, outletId)).for('update')
+        const [lockedShift] = await tx.select().from(posShifts).where(eq(posShifts.id, shiftId)).for('update')
+        if (!lockedOutlet || !scope(access, lockedOutlet.franchiseId) || !lockedShift ||
+            lockedShift.outletId !== outletId || lockedShift.status !== 'Open') {
+          throw new Error('The outlet shift is no longer open. Refresh POS and try again.')
+        }
+        const balances = new Map<string, number>()
         for (const [product, requested] of requestedByProduct) {
           const balance = await latestBalance(tx, outletId, product)
-          if (balance - requested < -0.000001 && data.allowNegativeStock !== true) throw new Error(`Insufficient outlet stock for ${product}.`)
+          balances.set(product, balance)
+          if (balance - requested < -0.000001) throw new Error(`Insufficient outlet stock for ${product}. Available: ${balance}; requested: ${requested}.`)
         }
 
         const bill = s(data.billNumber, 80) || `POS-${Date.now()}`
@@ -160,11 +169,12 @@ export default async (req: Request) => {
 
         for (const item of items) {
           const product = s(item.product, 80), qty = n(item.quantity)
-          const balance = await latestBalance(tx as typeof db, outletId, product)
+          const balanceAfter = (balances.get(product) ?? 0) - qty
+          balances.set(product, balanceAfter)
           await tx.insert(outletStockLedger).values({
             outletId, product, stockLotId: item.stockLotId ? s(item.stockLotId, 80) : null,
             movementType: 'Sale', quantity: String(-qty), referenceType: 'POS_SALE',
-            referenceId: sale.id, balanceAfter: String(balance - qty), createdBy: actor,
+            referenceId: sale.id, balanceAfter: String(balanceAfter), createdBy: actor,
           })
         }
         await tx.insert(auditEvents).values({
@@ -183,10 +193,13 @@ export default async (req: Request) => {
       if (!outlet || !scope(access, outlet.franchiseId) || !products.includes(product) || qty <= 0) return Response.json({ error: 'Valid outlet, product and quantity are required.' }, { status: 400, headers })
 
       const result = await db.transaction(async tx => {
+        // Lock the outlet and company lots so concurrent transfers cannot reuse the same stock.
+        const [lockedOutlet] = await tx.select().from(posOutlets).where(eq(posOutlets.id, outletId)).for('update')
+        if (!lockedOutlet || !scope(access, lockedOutlet.franchiseId)) throw new Error('Outlet access changed. Refresh and retry.')
         let remaining = qty
         const lots = await tx.select().from(stockLots)
           .where(and(eq(stockLots.product, product), eq(stockLots.stage, 'Finished stock'), eq(stockLots.status, 'Available')))
-          .orderBy(asc(stockLots.createdAt))
+          .orderBy(asc(stockLots.createdAt)).for('update')
 
         const allocations: Array<{ lotId: string; quantity: number }> = []
         for (const lot of lots) {
@@ -238,6 +251,15 @@ export default async (req: Request) => {
       const refundAmount = Math.max(0, qty * n(item.unitPrice) - (n(item.discount) * qty / Math.max(n(item.quantity), 1)) + (n(item.tax) * qty / Math.max(n(item.quantity), 1)))
 
       const result = await db.transaction(async tx => {
+        // Serialize returns against sales and other returns for this outlet.
+        const [lockedOutlet] = await tx.select().from(posOutlets).where(eq(posOutlets.id, sale.outletId)).for('update')
+        const [lockedSale] = await tx.select().from(posSales).where(eq(posSales.id, saleId)).for('update')
+        if (!lockedOutlet || !lockedSale || !scope(access, lockedOutlet.franchiseId)) throw new Error('Sale is no longer available for return.')
+        const lockedReturns = await tx.select().from(posReturns).where(eq(posReturns.itemId, itemId))
+        const lockedReturnedQty = lockedReturns.reduce((total, row) => total + n(row.quantity), 0)
+        if (lockedReturnedQty + qty > n(item.quantity) + 0.000001) {
+          throw new Error(`Return quantity exceeds the remaining sold quantity. Remaining: ${Math.max(0, n(item.quantity) - lockedReturnedQty)}.`)
+        }
         const [ret] = await tx.insert(posReturns).values({
           saleId, itemId, quantity: String(qty), amount: String(refundAmount), reason: s(data.reason, 300) || null,
         }).returning()
@@ -290,6 +312,11 @@ export default async (req: Request) => {
       const expected = n(shift.openingCash) + cash
       const variance = counted - expected
       const rec = await db.transaction(async tx => {
+        const [lockedOutlet] = await tx.select().from(posOutlets).where(eq(posOutlets.id, shift.outletId)).for('update')
+        const [lockedShift] = await tx.select().from(posShifts).where(eq(posShifts.id, shiftId)).for('update')
+        if (!lockedOutlet || !scope(access, lockedOutlet.franchiseId) || !lockedShift || lockedShift.status !== 'Open') {
+          throw new Error('Shift is already closed or outlet access changed. Refresh POS.')
+        }
         await tx.update(posShifts).set({
           status: 'Closed', closedAt: new Date(), expectedCash: String(expected),
           countedCash: String(counted), cashVariance: String(variance),
@@ -314,7 +341,9 @@ export default async (req: Request) => {
     return Response.json({ error: 'Unknown POS action.' }, { status: 400, headers })
   } catch (e) {
     console.error(e)
-    return Response.json({ error: e instanceof Error ? e.message : 'POS operation failed.' }, { status: 500, headers })
+    const message = e instanceof Error ? e.message : 'POS operation failed.'
+    const status = /insufficient .*stock|stock changed|shift is no longer open|already closed|return quantity exceeds|outlet access changed/i.test(message) ? 409 : 500
+    return Response.json({ error: message }, { status, headers })
   }
 }
 

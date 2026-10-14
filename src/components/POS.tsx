@@ -18,7 +18,11 @@ export function POSWorkspace(){
  const outlet=data.outlets.find(x=>x.id===outletId); const openShift=data.shifts.find(x=>x.outletId===outletId&&x.status==='Open')||null
  const salesToday=useMemo(()=>data.sales.filter(x=>new Date(x.soldAt).toDateString()===new Date().toDateString()),[data.sales])
  const totalToday=salesToday.reduce((a,x)=>a+Number(x.total||0),0)
- const stock=data.ledger.filter(x=>x.outletId===outletId).reduce((m,x)=>{m[x.product]=Number(x.balanceAfter);return m},{} as Record<string,number>)
+ const stock=data.ledger.filter(x=>x.outletId===outletId).reduce((m,x)=>{m[x.product]=(m[x.product]||0)+Number(x.quantity||0);return m},{} as Record<string,number>)
+ const availableStock=Math.max(0,stock[product]||0)
+ const enteredQty=Number(qty), enteredPrice=Number(price)
+ const saleEstimate=enteredQty*enteredPrice
+ const canRecordSale=!!openShift&&Number.isFinite(enteredQty)&&enteredQty>0&&enteredQty<=availableStock+0.000001&&Number.isFinite(enteredPrice)&&enteredPrice>0
  const run=async(fn:()=>Promise<unknown>)=>{setMessage('');try{await fn();setMessage('Saved successfully');await load()}catch(e){setMessage(e instanceof Error?e.message:'Action failed')}}
  return <div className="workspace-stack">
   <section className="panel">
@@ -35,13 +39,18 @@ export function POSWorkspace(){
    <div className="form-grid">
     <label>Outlet<select value={outletId} onChange={e=>setOutletId(e.target.value)}><option value="">Select outlet</option>{data.outlets.map(x=><option key={x.id} value={x.id}>{x.code} — {x.name}</option>)}</select></label>
     <label>Product<select value={product} onChange={e=>setProduct(e.target.value)}>{['Chicken','Mutton','Eggs','Fish','Prawns'].map(x=><option key={x}>{x}</option>)}</select></label>
-    <label>Quantity<input type="number" min="0.001" value={qty} onChange={e=>setQty(e.target.value)}/></label>
-    <label>Unit price<input type="number" min="0" value={price} onChange={e=>setPrice(e.target.value)}/></label>
+    <label>Quantity<input type="number" min="0.001" step="0.001" value={qty} onChange={e=>setQty(e.target.value)}/></label>
+    <label>Unit price<input type="number" min="0.01" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></label>
     <label>Payment<select value={method} onChange={e=>setMethod(e.target.value)}>{['Cash','UPI','Card','Credit'].map(x=><option key={x}>{x}</option>)}</select></label>
    </div>
+   <div className="info-note">
+    <Boxes size={18}/> Available {product} stock: <strong>{availableStock.toFixed(3)} kg</strong>
+    <span> · Sale total: <strong>{money(Number.isFinite(saleEstimate)?saleEstimate:0)}</strong></span>
+   </div>
+   {enteredQty>availableStock&&<div className="info-note" role="alert">Insufficient stock. Reduce the quantity or receive more stock before billing.</div>}
    <div className="button-row">
     {!openShift&&outlet&&<button className="primary-button" onClick={()=>run(async()=>{const r=await post('open-shift',{outletId,openingCash:0});void r})}><Plus size={15}/> Open shift</button>}
-    {openShift&&<button className="primary-button" onClick={()=>run(async()=>{await post('record-sale',{outletId,shiftId:openShift.id,items:[{product,quantity:Number(qty),unit:'kg',unitPrice:Number(price)}],idempotencyKey:`${openShift.id}-${Date.now()}`,payments:[{method,amount:Number(qty)*Number(price)}]})})}><ShoppingCart size={15}/> Record sale</button>}
+    {openShift&&<button className="primary-button" disabled={!canRecordSale} onClick={()=>run(async()=>{await post('record-sale',{outletId,shiftId:openShift.id,items:[{product,quantity:Number(qty),unit:'kg',unitPrice:Number(price)}],idempotencyKey:`${openShift.id}-${Date.now()}`,payments:[{method,amount:Number(qty)*Number(price)}]})})}><ShoppingCart size={15}/> Complete sale & deduct stock</button>}
     {openShift&&<><label className="inline-field">Counted cash<input type="number" min="0" value={countedCash} onChange={e=>setCountedCash(e.target.value)}/></label><button className="text-button" onClick={()=>run(async()=>{await post('close-shift',{shiftId:openShift.id,countedCash:Number(countedCash)});})}><CheckCircle2 size={15}/> Close shift</button></>}
    </div>
    {message&&<div className="info-note">{message}</div>}
